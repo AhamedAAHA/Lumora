@@ -1,0 +1,16 @@
+{
+  "name": "lumora",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Lumora OS — AI-powered interview platform",
+  "scripts": {
+    "dev:frontend": "npm run dev --prefix frontend",
+    "dev:backend": "npm run dev --prefix backend",
+    "dev": "concurrently \"npm run dev:backend\" \"npm run dev:frontend\"",
+    "install:all": "npm install --prefix frontend && npm install --prefix backend",
+    "build": "npm run build --prefix frontend"
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1"
+  }
+}

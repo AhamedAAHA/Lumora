@@ -1,0 +1,10 @@
+node_modules/
+dist/
+client/
+server/
+uploads/
+public/audio/
+.env
+.env.local
+*.log
+.DS_Store
