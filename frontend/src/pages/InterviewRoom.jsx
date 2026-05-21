@@ -12,6 +12,7 @@ const AnswerForm = memo(function AnswerForm({
   answer,
   setAnswer,
   listening,
+  voiceError,
   onListen,
   onSubmit,
   showCoding,
@@ -42,10 +43,11 @@ const AnswerForm = memo(function AnswerForm({
         </button>
         {showCoding && (
           <button type="button" onClick={onCoding} className="btn-secondary text-sm">
-            Coding round →
+            {'Coding round ->'}
           </button>
         )}
       </div>
+      {voiceError && <p className="mt-3 text-sm text-amber-200">{voiceError}</p>}
     </div>
   );
 });
@@ -57,9 +59,11 @@ export default function InterviewRoom() {
   const [answer, setAnswer] = useState('');
   const [speaking, setSpeaking] = useState(false);
   const [listening, setListening] = useState(false);
+  const [voiceError, setVoiceError] = useState('');
   const [cheatLog, setCheatLog] = useState([]);
   const voicePlayedRef = useRef('');
   const audioRef = useRef(null);
+  const recognitionRef = useRef(null);
   const { scores, history, analyzeAnswer, startTimer, getElapsed } = useConfidenceAnalysis();
 
   const reportCheat = useCallback(
@@ -115,27 +119,76 @@ export default function InterviewRoom() {
     };
   }, [session?.currentQuestion, session?.personality, session?.language]);
 
-  const startListening = () => {
-    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SR) {
-      alert('Speech recognition not supported in this browser.');
+  useEffect(() => {
+    return () => {
+      recognitionRef.current?.abort();
+      recognitionRef.current = null;
+    };
+  }, []);
+
+  const toggleListening = () => {
+    if (recognitionRef.current) {
+      recognitionRef.current.stop();
       return;
     }
+
+    setVoiceError('');
+
+    if (!window.isSecureContext) {
+      setVoiceError('Voice input needs HTTPS or localhost so the browser can use your microphone.');
+      return;
+    }
+
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SR) {
+      setVoiceError('Speech recognition is not supported in this browser. Try Chrome or Edge.');
+      return;
+    }
+
     const rec = new SR();
     rec.lang =
       session?.language === 'ta' ? 'ta-IN' : session?.language === 'si' ? 'si-LK' : 'en-US';
     rec.continuous = false;
     rec.interimResults = false;
+    rec.maxAlternatives = 1;
+
+    recognitionRef.current = rec;
     setListening(true);
     startTimer();
+
     rec.onresult = (e) => {
-      const transcript = e.results[0][0].transcript;
+      const transcript = Array.from(e.results)
+        .map((result) => result[0]?.transcript)
+        .filter(Boolean)
+        .join(' ')
+        .trim();
+      if (!transcript) return;
       setAnswer((a) => (a ? `${a} ${transcript}` : transcript));
+    };
+
+    rec.onerror = (event) => {
+      const messages = {
+        'not-allowed': 'Microphone permission was blocked. Allow microphone access and try again.',
+        'service-not-allowed': 'Speech recognition is blocked by the browser or network.',
+        'no-speech': 'No speech was detected. Try again a little closer to the microphone.',
+        'audio-capture': 'No microphone was found. Check your input device and try again.',
+        network: 'Speech recognition could not reach the browser speech service.',
+      };
+      setVoiceError(messages[event.error] || 'Voice input stopped unexpectedly. Please try again.');
+    };
+
+    rec.onend = () => {
+      recognitionRef.current = null;
       setListening(false);
     };
-    rec.onerror = () => setListening(false);
-    rec.onend = () => setListening(false);
-    rec.start();
+
+    try {
+      rec.start();
+    } catch {
+      recognitionRef.current = null;
+      setListening(false);
+      setVoiceError('Voice input could not start. Please try again.');
+    }
   };
 
   const submitAnswer = async () => {
@@ -168,14 +221,14 @@ export default function InterviewRoom() {
 
   if (!session) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-lumora-black">
+      <div className="mountain-bg flex min-h-screen items-center justify-center">
         <div className="h-10 w-10 animate-spin rounded-full border-2 border-indigo-500 border-t-transparent" />
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-lumora-black">
+    <div className="mountain-bg min-h-screen">
       <header className="flex items-center justify-between border-b border-white/10 px-4 py-4 md:px-8">
         <div className="flex items-center gap-4">
           <span className="pill-tag capitalize">{session.round} round</span>
@@ -210,7 +263,8 @@ export default function InterviewRoom() {
             answer={answer}
             setAnswer={setAnswer}
             listening={listening}
-            onListen={startListening}
+            voiceError={voiceError}
+            onListen={toggleListening}
             onSubmit={submitAnswer}
             showCoding={session.includeCoding && session.questionIndex >= 3}
             onCoding={() => navigate(`/interview/${sessionId}/coding`)}
@@ -222,3 +276,4 @@ export default function InterviewRoom() {
     </div>
   );
 }
+

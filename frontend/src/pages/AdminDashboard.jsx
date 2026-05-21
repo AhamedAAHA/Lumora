@@ -4,11 +4,13 @@ import {
   Check,
   ClipboardList,
   FileText,
+  Pencil,
   Plus,
   Send,
   Settings,
   Sparkles,
   Trash2,
+  X,
   UserPlus,
   Users,
 } from 'lucide-react';
@@ -34,6 +36,14 @@ const emptyJobRole = {
   rounds: ['hr', 'technical'],
   status: 'active',
 };
+const emptyQuestion = {
+  text: '',
+  candidateId: '',
+  jobRoleId: '',
+  interviewId: '',
+  round: 'technical',
+  difficulty: 'medium',
+};
 const defaultSettings = {
   defaultLanguage: 'en',
   defaultQuestions: 8,
@@ -46,6 +56,7 @@ const tabs = [
   { id: 'candidates', label: 'Candidates', icon: Users },
   { id: 'jobs', label: 'Job Roles', icon: ClipboardList },
   { id: 'interviews', label: 'Interviews', icon: ClipboardList },
+  { id: 'questions', label: 'Questions', icon: Sparkles },
   { id: 'reports', label: 'Reports', icon: FileText },
   { id: 'settings', label: 'Settings', icon: Settings },
 ];
@@ -62,11 +73,28 @@ export default function AdminDashboard() {
   const [userForm, setUserForm] = useState(emptyUser);
   const [interviewForm, setInterviewForm] = useState(emptyInterview);
   const [jobForm, setJobForm] = useState(emptyJobRole);
+  const [questionForm, setQuestionForm] = useState(emptyQuestion);
+  const [editingQuestionId, setEditingQuestionId] = useState('');
+  const [questionDrafts, setQuestionDrafts] = useState({});
+  const [questionSearch, setQuestionSearch] = useState('');
+  const [questionRoundFilter, setQuestionRoundFilter] = useState('');
+  const [questionSourceFilter, setQuestionSourceFilter] = useState('');
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState('');
 
   const candidates = useMemo(() => users.filter((user) => user.role === 'candidate'), [users]);
+  const visibleQuestions = useMemo(
+    () =>
+      questionBank.filter((question) => {
+        const haystack = `${question.text || ''} ${question.jobRoleId?.title || ''}`.toLowerCase();
+        const matchesSearch = haystack.includes(questionSearch.trim().toLowerCase());
+        const matchesRound = !questionRoundFilter || question.round === questionRoundFilter;
+        const matchesSource = !questionSourceFilter || question.source === questionSourceFilter;
+        return matchesSearch && matchesRound && matchesSource;
+      }),
+    [questionBank, questionRoundFilter, questionSearch, questionSourceFilter]
+  );
 
   const load = async () => {
     try {
@@ -138,15 +166,61 @@ export default function AdminDashboard() {
 
   const deleteJobRole = (id) => run('Job role deleted', () => api.delete(`/admin/job-roles/${id}`));
 
-  const generateQuestion = async () => {
-    setBusy('question');
+  const createQuestion = (event) => {
+    event.preventDefault();
+    run('Question added to bank', async () => {
+      await api.post('/admin/questions', questionForm);
+      setQuestionForm(emptyQuestion);
+    });
+  };
+
+  const startEditQuestion = (question) => {
+    setEditingQuestionId(question._id);
+    setQuestionDrafts((drafts) => ({
+      ...drafts,
+      [question._id]: {
+        text: question.text || '',
+        jobRoleId: question.jobRoleId?._id || question.jobRoleId || '',
+        interviewId: question.interviewId?._id || question.interviewId || '',
+        round: question.round || 'technical',
+        difficulty: question.difficulty || 'medium',
+      },
+    }));
+  };
+
+  const updateQuestionDraft = (id, patch) => {
+    setQuestionDrafts((drafts) => ({ ...drafts, [id]: { ...drafts[id], ...patch } }));
+  };
+
+  const saveQuestion = (id) =>
+    run('Question updated', async () => {
+      await api.patch(`/admin/questions/${id}`, questionDrafts[id]);
+      setEditingQuestionId('');
+    });
+
+  const deleteQuestion = (id) =>
+    run('Question deleted', () => api.delete(`/admin/questions/${id}`));
+
+  const generateQuestion = async (target = 'interview', save = false) => {
+    const source = target === 'bank' ? questionForm : interviewForm;
+    setBusy(save ? 'question-save' : target === 'bank' ? 'question-draft' : 'question');
     try {
       const { data } = await api.post('/admin/questions/generate', {
-        ...interviewForm,
-        save: Boolean(interviewForm.jobRoleId),
+        ...source,
+        save,
+        requireResume: target === 'bank',
       });
-      setInterviewForm((form) => ({ ...form, currentQuestion: data.question || '' }));
-      setMessage('AI question generated');
+      if (target === 'bank') {
+        if (save) {
+          setQuestionForm(emptyQuestion);
+          await load();
+        } else {
+          setQuestionForm((form) => ({ ...form, text: data.question || '' }));
+        }
+      } else {
+        setInterviewForm((form) => ({ ...form, currentQuestion: data.question || '' }));
+      }
+      setMessage(save ? 'AI question saved' : 'AI question generated');
     } catch (err) {
       setError(err.response?.data?.message || err.message);
     } finally {
@@ -409,7 +483,7 @@ export default function AdminDashboard() {
                   className="w-full resize-none rounded-xl border border-white/10 bg-white/[0.03] px-3 py-3 text-sm text-white outline-none placeholder:text-white/30 focus:border-white/30"
                 />
                 <div className="flex flex-wrap gap-3">
-                  <button type="button" onClick={generateQuestion} className="btn-secondary inline-flex items-center gap-2">
+                  <button type="button" onClick={() => generateQuestion('interview')} className="btn-secondary inline-flex items-center gap-2">
                     <Sparkles className="h-4 w-4" /> {busy === 'question' ? 'Generating...' : 'Generate AI question'}
                   </button>
                   <label className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2 text-sm text-white/60">
@@ -474,19 +548,157 @@ export default function AdminDashboard() {
                 {interviews.length === 0 && <Empty text="No interviews created yet." />}
               </Stack>
             </Panel>
-            <Panel title="Question Bank" icon={Sparkles}>
-              <Stack>
-                {questionBank.slice(0, 8).map((question) => (
-                  <Row
-                    key={question._id}
-                    title={question.text}
-                    meta={`${formatLabel(question.round)} - ${question.source}`}
-                  />
-                ))}
-                {questionBank.length === 0 && <Empty text="Manual and AI questions will appear here." />}
-              </Stack>
-            </Panel>
           </div>
+        )}
+
+        {activeTab === 'questions' && (
+          <Panel title="All Questions" icon={Sparkles}>
+            <div className="grid min-w-0 gap-5 xl:grid-cols-[380px_minmax(0,1fr)]">
+              <form onSubmit={createQuestion} className="space-y-3">
+                <textarea
+                  value={questionForm.text}
+                  onChange={(event) =>
+                    setQuestionForm((form) => ({ ...form, text: event.target.value }))
+                  }
+                  rows={5}
+                  required
+                  placeholder="Question the interviewer can ask"
+                  className="w-full resize-none rounded-xl border border-white/10 bg-white/[0.03] px-3 py-3 text-sm text-white outline-none placeholder:text-white/30 focus:border-white/30"
+                />
+                <Select
+                  value={questionForm.jobRoleId}
+                  onChange={(jobRoleId) => setQuestionForm((form) => ({ ...form, jobRoleId }))}
+                  options={[['', 'Any job role'], ...jobRoles.map((role) => [role._id, role.title])]}
+                />
+                <Select
+                  value={questionForm.candidateId}
+                  onChange={(candidateId) => setQuestionForm((form) => ({ ...form, candidateId }))}
+                  options={[['', 'Select candidate with PDF'], ...candidates.map((candidate) => [candidate.id, candidate.name])]}
+                />
+                <Select
+                  value={questionForm.interviewId}
+                  onChange={(interviewId) => setQuestionForm((form) => ({ ...form, interviewId }))}
+                  options={[
+                    ['', 'Save to question bank'],
+                    ...interviews.map((interview) => [
+                      interview.id,
+                      `${interview.candidate?.name || 'Candidate'} - ${formatLabel(interview.round)}`,
+                    ]),
+                  ]}
+                />
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <Select
+                    value={questionForm.round}
+                    onChange={(round) => setQuestionForm((form) => ({ ...form, round }))}
+                    options={[['hr', 'HR'], ['aptitude', 'Aptitude'], ['technical', 'Technical'], ['final', 'Final'], ['coding', 'Coding']]}
+                  />
+                  <Select
+                    value={questionForm.difficulty}
+                    onChange={(difficulty) => setQuestionForm((form) => ({ ...form, difficulty }))}
+                    options={[['easy', 'Easy'], ['medium', 'Medium'], ['hard', 'Hard']]}
+                  />
+                </div>
+                <div className="flex flex-wrap gap-3">
+                  <button className="mono-button" type="submit">
+                    <Plus className="h-4 w-4" /> Add question
+                  </button>
+                  <button type="button" onClick={() => generateQuestion('bank')} className="btn-secondary inline-flex items-center gap-2">
+                    <Sparkles className="h-4 w-4" /> {busy === 'question-draft' ? 'Generating...' : 'AI draft'}
+                  </button>
+                  <button type="button" onClick={() => generateQuestion('bank', true)} className="btn-secondary inline-flex items-center gap-2">
+                    <Sparkles className="h-4 w-4" /> {busy === 'question-save' ? 'Saving...' : 'AI save'}
+                  </button>
+                </div>
+              </form>
+              <Stack>
+                <div className="grid min-w-0 gap-3 rounded-xl border border-white/10 bg-black/20 p-3 md:grid-cols-[minmax(0,1fr)_180px_180px]">
+                  <Input
+                    value={questionSearch}
+                    onChange={setQuestionSearch}
+                    placeholder="Search questions"
+                  />
+                  <Select
+                    value={questionRoundFilter}
+                    onChange={setQuestionRoundFilter}
+                    options={[['', 'All rounds'], ['hr', 'HR'], ['aptitude', 'Aptitude'], ['technical', 'Technical'], ['final', 'Final'], ['coding', 'Coding']]}
+                  />
+                  <Select
+                    value={questionSourceFilter}
+                    onChange={setQuestionSourceFilter}
+                    options={[['', 'All sources'], ['manual', 'Manual'], ['ai', 'AI']]}
+                  />
+                </div>
+                <p className="text-xs text-white/40">
+                  Showing {visibleQuestions.length} of {questionBank.length} questions
+                </p>
+                {visibleQuestions.map((question) => {
+                  const editing = editingQuestionId === question._id;
+                  const draft = questionDrafts[question._id] || {};
+                  return editing ? (
+                    <div key={question._id} className="space-y-3 rounded-xl border border-white/10 bg-black/20 px-3 py-3">
+                      <textarea
+                        value={draft.text}
+                        onChange={(event) => updateQuestionDraft(question._id, { text: event.target.value })}
+                        rows={3}
+                        className="w-full resize-none rounded-xl border border-white/10 bg-white/[0.03] px-3 py-3 text-sm text-white outline-none placeholder:text-white/30 focus:border-white/30"
+                      />
+                      <div className="grid gap-3 md:grid-cols-4">
+                        <Select
+                          value={draft.jobRoleId}
+                          onChange={(jobRoleId) => updateQuestionDraft(question._id, { jobRoleId })}
+                          options={[['', 'Any job role'], ...jobRoles.map((role) => [role._id, role.title])]}
+                        />
+                        <Select
+                          value={draft.interviewId}
+                          onChange={(interviewId) => updateQuestionDraft(question._id, { interviewId })}
+                          options={[
+                            ['', 'Question bank'],
+                            ...interviews.map((interview) => [
+                              interview.id,
+                              `${interview.candidate?.name || 'Candidate'} - ${formatLabel(interview.round)}`,
+                            ]),
+                          ]}
+                        />
+                        <Select
+                          value={draft.round}
+                          onChange={(round) => updateQuestionDraft(question._id, { round })}
+                          options={[['hr', 'HR'], ['aptitude', 'Aptitude'], ['technical', 'Technical'], ['final', 'Final'], ['coding', 'Coding']]}
+                        />
+                        <Select
+                          value={draft.difficulty}
+                          onChange={(difficulty) => updateQuestionDraft(question._id, { difficulty })}
+                          options={[['easy', 'Easy'], ['medium', 'Medium'], ['hard', 'Hard']]}
+                        />
+                      </div>
+                      <div className="flex justify-end gap-2">
+                        <IconButton label="Cancel edit" onClick={() => setEditingQuestionId('')}>
+                          <X className="h-4 w-4" />
+                        </IconButton>
+                        <IconButton label="Save question" onClick={() => saveQuestion(question._id)}>
+                          <Check className="h-4 w-4" />
+                        </IconButton>
+                      </div>
+                    </div>
+                  ) : (
+                    <Row
+                      key={question._id}
+                      title={question.text}
+                      meta={`${formatLabel(question.round)} - ${formatLabel(question.difficulty)} - ${question.source}${question.jobRoleId?.title ? ` - ${question.jobRoleId.title}` : ''}`}
+                    >
+                      <IconButton label="Edit question" onClick={() => startEditQuestion(question)}>
+                        <Pencil className="h-4 w-4" />
+                      </IconButton>
+                      <IconButton label="Delete question" onClick={() => deleteQuestion(question._id)}>
+                        <Trash2 className="h-4 w-4" />
+                      </IconButton>
+                    </Row>
+                  );
+                })}
+                {questionBank.length === 0 && <Empty text="Manual and AI questions will appear here." />}
+                {questionBank.length > 0 && visibleQuestions.length === 0 && <Empty text="No questions match those filters." />}
+              </Stack>
+            </div>
+          </Panel>
         )}
 
         {activeTab === 'reports' && (
@@ -569,7 +781,7 @@ export default function AdminDashboard() {
 
 function Metric({ label, value }) {
   return (
-    <div className="rounded-2xl border border-white/10 bg-white/[0.04] px-5 py-4">
+    <div className="os-card px-5 py-4">
       <p className="text-xs uppercase tracking-[0.2em] text-white/35">{label}</p>
       <p className="mt-2 text-3xl font-semibold text-white">{value}</p>
     </div>
@@ -578,7 +790,7 @@ function Metric({ label, value }) {
 
 function Panel({ icon: Icon, title, children }) {
   return (
-    <section className="rounded-2xl border border-white/10 bg-[#151515]/85 p-5 shadow-[0_24px_70px_rgba(0,0,0,0.35)]">
+    <section className="os-panel min-w-0 overflow-hidden p-5">
       <div className="mb-5 flex items-center gap-3">
         <span className="rounded-xl border border-white/10 bg-white/[0.04] p-2">
           <Icon className="h-4 w-4 text-white/80" />
@@ -591,13 +803,13 @@ function Panel({ icon: Icon, title, children }) {
 }
 
 function Stack({ children }) {
-  return <div className="space-y-2">{children}</div>;
+  return <div className="min-w-0 space-y-2">{children}</div>;
 }
 
 function Row({ title, meta, children }) {
   return (
-    <div className="flex flex-wrap items-center gap-2 rounded-xl border border-white/10 bg-black/20 px-3 py-3">
-      <div className="min-w-[180px] flex-1">
+    <div className="flex min-w-0 flex-wrap items-center gap-2 rounded-xl border border-white/10 bg-black/20 px-3 py-3">
+      <div className="min-w-0 flex-1">
         <p className="truncate text-sm font-medium text-white">{title}</p>
         <p className="truncate text-xs text-white/40">{meta}</p>
       </div>

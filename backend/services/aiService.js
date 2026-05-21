@@ -41,13 +41,16 @@ async function chat(system, user, language = 'en') {
 
 async function generateFirstQuestion(session) {
   const personality = PERSONALITY_PROMPTS[session.personality];
-  const resumeCtx = session.resumeData?.skills?.length
-    ? `Resume skills: ${session.resumeData.skills.join(', ')}. Projects: ${session.resumeData.projects?.join('; ')}`
+  const resumeCtx = buildResumeContext(session.resumeData);
+  const avoidCtx = Array.isArray(session.avoidQuestions) && session.avoidQuestions.length
+    ? `Do not repeat or closely paraphrase these existing questions: ${session.avoidQuestions
+        .slice(0, 12)
+        .join(' | ')}.`
     : '';
 
   const prompt = await chat(
     `${personality} Conduct a ${session.round} interview. ${resumeCtx}`,
-    `Generate the opening interview question. If resume mentions React or similar, personalize like "I noticed you built a React project — explain how state management works." Return JSON: {"question":"...","comment":""}`,
+    `Generate one fresh opening interview question. ${avoidCtx} If resume context is provided, personalize it to a specific project, skill, or experience from that resume. If no resume context is provided, ask a role-appropriate general interview question without naming technologies that were not provided. Return JSON: {"question":"...","comment":""}`,
     session.language
   );
 
@@ -62,21 +65,80 @@ async function generateFirstQuestion(session) {
 }
 
 function fallbackQuestion(session) {
-  const skill = session.resumeData?.skills?.[0];
-  if (skill === 'react') {
-    return {
-      question:
-        'I noticed you worked with React. Can you explain how you handle state management in a medium-sized application?',
-      comment: '',
-    };
-  }
+  const resumeQuestion = pickFreshQuestion(
+    buildResumeFallbackQuestions(session.resumeData),
+    session.avoidQuestions
+  );
+  if (resumeQuestion) return { question: resumeQuestion, comment: '' };
+
   const roundQs = {
-    hr: 'Tell me about yourself and why you are interested in this role.',
-    aptitude: 'If a train travels 60 km in 45 minutes, what is its average speed in km/h?',
-    technical: 'Explain the difference between REST and GraphQL APIs. When would you choose each?',
-    final: 'Summarize your biggest professional achievement and what you learned from it.',
+    hr: [
+      'Tell me about yourself and why you are interested in this role.',
+      'Describe a time you handled feedback and changed how you worked afterward.',
+      'What kind of team environment helps you do your best work?',
+    ],
+    aptitude: [
+      'If a train travels 60 km in 45 minutes, what is its average speed in km/h?',
+      'A product price increases by 20% and then decreases by 20%. Is the final price higher, lower, or the same as the original?',
+      'If five people complete five tasks in five days, how many days would ten people take to complete ten similar tasks?',
+    ],
+    technical: [
+      'Explain the difference between REST and GraphQL APIs. When would you choose each?',
+      'How would you debug a slow API endpoint from the browser to the database?',
+      'Describe how you would design a feature so it remains maintainable as requirements change.',
+    ],
+    final: [
+      'Summarize your biggest professional achievement and what you learned from it.',
+      'What would you focus on in your first 30 days if selected for this role?',
+      'Which strength would you bring to this team immediately, and where would you still need support?',
+    ],
   };
-  return { question: roundQs[session.round] || roundQs.technical, comment: '' };
+  return {
+    question: pickFreshQuestion(roundQs[session.round] || roundQs.technical, session.avoidQuestions),
+    comment: '',
+  };
+}
+
+function buildResumeContext(resumeData = {}) {
+  const parts = [];
+  if (resumeData.skills?.length) parts.push(`Resume skills: ${resumeData.skills.join(', ')}`);
+  if (resumeData.projects?.length) parts.push(`Projects: ${resumeData.projects.join('; ')}`);
+  if (resumeData.experience?.length) parts.push(`Experience: ${resumeData.experience.join('; ')}`);
+  if (resumeData.education?.length) parts.push(`Education: ${resumeData.education.join('; ')}`);
+  return parts.length ? `${parts.join('. ')}.` : '';
+}
+
+function buildResumeFallbackQuestions(resumeData = {}) {
+  const skills = (resumeData.skills || []).filter(Boolean).slice(0, 4);
+  const projects = (resumeData.projects || []).filter(Boolean).slice(0, 3);
+  const experience = (resumeData.experience || []).filter(Boolean).slice(0, 3);
+  const questions = [];
+
+  skills.forEach((skill) => {
+    questions.push(`I noticed ${skill} in your resume. Can you walk me through a project where you used it and the trade-offs you made?`);
+    questions.push(`What is one difficult problem you solved using ${skill}, and how did you know your solution was working?`);
+  });
+  projects.forEach((project) => {
+    questions.push(`Your resume mentions ${project}. What was the hardest technical decision in that project?`);
+    questions.push(`For ${project}, how did you measure whether the implementation was successful?`);
+  });
+  experience.forEach((item) => {
+    questions.push(`In your experience with ${item}, what responsibility had the most impact and why?`);
+  });
+
+  return questions;
+}
+
+function pickFreshQuestion(candidates = [], avoidQuestions = []) {
+  if (!candidates.length) return '';
+  const normalizedAvoid = new Set((avoidQuestions || []).map(normalizeQuestion));
+  const fresh = candidates.find((question) => question && !normalizedAvoid.has(normalizeQuestion(question)));
+  if (fresh) return fresh;
+  return candidates[Math.floor(Math.random() * candidates.length)];
+}
+
+function normalizeQuestion(question = '') {
+  return String(question).toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
 }
 
 async function evaluateAndRespond(session, answer, metrics) {
@@ -189,3 +251,4 @@ module.exports = {
   evaluateCode,
   chat,
 };
+

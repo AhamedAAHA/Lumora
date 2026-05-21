@@ -20,17 +20,53 @@
 
 @layer components {
   .mountain-bg {
+    position: relative;
+    isolation: isolate;
     background-color: #050506;
     background-image:
       radial-gradient(ellipse 120% 80% at 50% 100%, rgba(40, 40, 45, 0.9) 0%, transparent 55%),
       radial-gradient(ellipse 90% 60% at 20% 90%, rgba(30, 30, 35, 0.7) 0%, transparent 50%),
       radial-gradient(ellipse 80% 50% at 80% 85%, rgba(25, 25, 30, 0.6) 0%, transparent 45%),
       linear-gradient(180deg, #050506 0%, #0a0a0c 40%, #121214 100%);
+    perspective: 1200px;
+  }
+
+  .mountain-bg::before {
+    content: '';
+    position: fixed;
+    inset: auto -12vw 0;
+    z-index: -2;
+    height: 42vh;
+    pointer-events: none;
+    background-image:
+      linear-gradient(rgba(255, 255, 255, 0.085) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(255, 255, 255, 0.055) 1px, transparent 1px);
+    background-size: 80px 80px;
+    transform: rotateX(66deg) translateY(18%);
+    transform-origin: bottom center;
+    opacity: 0.28;
+    mask-image: linear-gradient(to top, black 0%, transparent 78%);
+  }
+
+  .mountain-bg::after {
+    content: '';
+    position: fixed;
+    inset: 0;
+    z-index: -1;
+    pointer-events: none;
+    background:
+      linear-gradient(115deg, rgba(255, 255, 255, 0.055), transparent 22%),
+      linear-gradient(245deg, rgba(255, 255, 255, 0.035), transparent 28%);
+    opacity: 0.55;
   }
 
   .glass-card {
     @apply rounded-2xl border border-white/[0.08] bg-[#141416]/85;
-    box-shadow: 0 4px 24px rgba(0, 0, 0, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.04);
+    transform-style: preserve-3d;
+    box-shadow:
+      0 26px 70px rgba(0, 0, 0, 0.48),
+      0 1px 0 rgba(255, 255, 255, 0.05),
+      inset 0 1px 0 rgba(255, 255, 255, 0.04);
   }
 
   .glass-card-glow {
@@ -40,11 +76,30 @@
 
   .os-panel {
     @apply rounded-[28px] border border-white/[0.09] bg-[#0c0c0e]/75;
-    box-shadow: 0 24px 80px rgba(0, 0, 0, 0.65), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+    transform-style: preserve-3d;
+    box-shadow:
+      0 34px 100px rgba(0, 0, 0, 0.68),
+      0 1px 0 rgba(255, 255, 255, 0.05),
+      inset 0 1px 0 rgba(255, 255, 255, 0.05);
   }
 
   .os-card {
     @apply rounded-2xl border border-white/[0.07] bg-[#161618]/90 p-4;
+    transform: translateZ(0);
+    transform-style: preserve-3d;
+    box-shadow:
+      0 18px 44px rgba(0, 0, 0, 0.42),
+      inset 0 1px 0 rgba(255, 255, 255, 0.045);
+    transition: transform 180ms ease, border-color 180ms ease, box-shadow 180ms ease;
+  }
+
+  .os-card:hover,
+  .glass-card:hover {
+    transform: translateY(-2px) translateZ(18px);
+    box-shadow:
+      0 30px 78px rgba(0, 0, 0, 0.55),
+      0 10px 28px rgba(255, 255, 255, 0.035),
+      inset 0 1px 0 rgba(255, 255, 255, 0.06);
   }
 
   .pill-tag {
@@ -53,10 +108,12 @@
 
   .btn-primary {
     @apply rounded-full bg-white px-6 py-2.5 text-sm font-semibold text-black transition hover:bg-white/90;
+    box-shadow: 0 12px 28px rgba(255, 255, 255, 0.12), 0 2px 0 rgba(255, 255, 255, 0.24) inset;
   }
 
   .btn-secondary {
     @apply rounded-full border border-white/20 bg-white/5 px-6 py-2.5 text-sm font-semibold text-white transition hover:bg-white/10;
+    box-shadow: 0 12px 28px rgba(0, 0, 0, 0.26), 0 1px 0 rgba(255, 255, 255, 0.05) inset;
   }
 
   .btn-ghost {
@@ -65,6 +122,7 @@
 
   .mono-button {
     @apply inline-flex h-12 w-full items-center justify-center gap-2 rounded-full border border-white/15 bg-white text-sm font-semibold text-black transition hover:bg-white/90;
+    box-shadow: 0 16px 34px rgba(255, 255, 255, 0.11), 0 2px 0 rgba(255, 255, 255, 0.24) inset;
   }
 
   .mono-select {
@@ -87,5 +145,17 @@
   .live-dot {
     @apply h-2 w-2 rounded-full bg-emerald-400;
     box-shadow: 0 0 8px rgba(52, 211, 153, 0.8);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .os-card,
+    .glass-card {
+      transition: none;
+    }
+
+    .os-card:hover,
+    .glass-card:hover {
+      transform: none;
+    }
   }
 }

@@ -48,9 +48,9 @@ export default function CodingRound() {
   };
 
   return (
-    <div className="min-h-screen bg-lumora-black p-4 md:p-8">
+    <div className="mountain-bg min-h-screen p-4 md:p-8">
       <Link to={`/interview/${sessionId}`} className="text-sm text-white/50">
-        ← Back to interview
+        {'<- Back to interview'}
       </Link>
       <h1 className="mt-4 text-2xl font-bold">AI Technical Coding Round</h1>
       <p className="mt-2 text-white/55">
@@ -95,3 +95,4 @@ export default function CodingRound() {
     </div>
   );
 }
+

@@ -5,6 +5,7 @@ const JobRole = require('../models/JobRole');
 const Notification = require('../models/Notification');
 const Question = require('../models/Question');
 const Report = require('../models/Report');
+const Resume = require('../models/Resume');
 const Setting = require('../models/Setting');
 const User = require('../models/User');
 const { protect, authorize } = require('../middleware/auth');
@@ -71,10 +72,13 @@ router.get('/questions', async (req, res) => {
 
 router.post('/questions', async (req, res) => {
   try {
+    const text = String(req.body.text || '').trim();
+    if (!text) return res.status(400).json({ message: 'Question text is required' });
+
     const question = await Question.create({
       jobRoleId: req.body.jobRoleId || undefined,
       interviewId: req.body.interviewId || undefined,
-      text: req.body.text,
+      text,
       round: req.body.round || 'technical',
       difficulty: req.body.difficulty || 'medium',
       source: 'manual',
@@ -95,12 +99,28 @@ router.post('/questions', async (req, res) => {
 router.patch('/questions/:id', async (req, res) => {
   const question = await Question.findById(req.params.id);
   if (!question) return res.status(404).json({ message: 'Question not found' });
+  const previousInterviewId = question.interviewId ? String(question.interviewId) : '';
 
   ['text', 'round', 'difficulty', 'jobRoleId', 'interviewId'].forEach((field) => {
     if (req.body[field] !== undefined) question[field] = req.body[field] || undefined;
   });
+  if (req.body.text !== undefined) {
+    question.text = String(req.body.text || '').trim();
+    if (!question.text) return res.status(400).json({ message: 'Question text is required' });
+  }
   await question.save();
 
+  const nextInterviewId = question.interviewId ? String(question.interviewId) : '';
+  if (previousInterviewId && previousInterviewId !== nextInterviewId) {
+    await InterviewSession.findByIdAndUpdate(previousInterviewId, {
+      $pull: { manualQuestions: question._id },
+    });
+  }
+  if (nextInterviewId) {
+    await InterviewSession.findByIdAndUpdate(nextInterviewId, {
+      $addToSet: { manualQuestions: question._id },
+    });
+  }
   if (question.interviewId && req.body.text) {
     await InterviewSession.findByIdAndUpdate(question.interviewId, { currentQuestion: question.text });
   }
@@ -115,6 +135,12 @@ router.delete('/questions/:id', async (req, res) => {
     { manualQuestions: question._id },
     { $pull: { manualQuestions: question._id } }
   );
+  if (question.interviewId) {
+    await InterviewSession.updateOne(
+      { _id: question.interviewId, currentQuestion: question.text },
+      { $unset: { currentQuestion: 1 } }
+    );
+  }
   await question.deleteOne();
   res.json({ ok: true });
 });
@@ -300,11 +326,30 @@ router.patch('/interviews/:id', async (req, res) => {
 
 router.post('/questions/generate', async (req, res) => {
   try {
+    const context = await getQuestionGenerationContext(req.body);
+    if (req.body.requireResume && !hasResumeData(context.resumeData)) {
+      return res.status(400).json({
+        message:
+          'Select a candidate or interview with an uploaded PDF before generating a resume-based AI question.',
+      });
+    }
+    const existingQuestions = await Question.find({
+      ...(req.body.jobRoleId ? { jobRoleId: req.body.jobRoleId } : {}),
+      ...(req.body.interviewId ? { interviewId: req.body.interviewId } : {}),
+    })
+      .sort({ createdAt: -1 })
+      .limit(20)
+      .select('text')
+      .lean();
+    const draftAvoidQuestions = [req.body.text, req.body.currentQuestion]
+      .map((text) => String(text || '').trim())
+      .filter(Boolean);
     const question = await generateFirstQuestion({
       language: req.body.language || 'en',
       personality: req.body.personality || 'friendly_hr',
-      round: req.body.round || 'technical',
-      resumeData: req.body.resumeData || {},
+      round: context.round,
+      resumeData: context.resumeData,
+      avoidQuestions: [...draftAvoidQuestions, ...existingQuestions.map((item) => item.text)],
     });
     if (req.body.save) {
       const saved = await Question.create({
@@ -320,7 +365,7 @@ router.post('/questions/generate', async (req, res) => {
     }
     res.json(question);
   } catch (err) {
-    res.status(500).json({ message: err.message });
+    res.status(err.status || 500).json({ message: err.message });
   }
 });
 
@@ -403,6 +448,9 @@ router.delete('/reports/:id', async (req, res) => {
 
 async function publishSession(session) {
   if (!session.currentQuestion) {
+    if (!hasResumeData(session.resumeData)) {
+      session.resumeData = await getLatestResumeData(session.candidateId);
+    }
     const first = await generateFirstQuestion(session);
     session.currentQuestion = first.question;
     session.lastComment = first.comment || '';
@@ -414,6 +462,47 @@ async function publishSession(session) {
     message: `A ${session.round} interview is ready for you.`,
     relatedSessionId: session._id,
   });
+}
+
+async function getQuestionGenerationContext(body) {
+  let session = null;
+  if (body.interviewId) {
+    session = await InterviewSession.findById(body.interviewId).select('candidateId round resumeData');
+  }
+
+  const candidateId = session?.candidateId || body.candidateId;
+  const latestResume = await getLatestResumeData(candidateId);
+
+  const sessionResume = session?.resumeData || {};
+  const explicitResume = body.resumeData || {};
+  const resumeData = hasResumeData(sessionResume)
+    ? sessionResume
+    : hasResumeData(latestResume)
+      ? latestResume
+      : explicitResume;
+
+  return {
+    round: body.round || session?.round || 'technical',
+    resumeData,
+  };
+}
+
+async function getLatestResumeData(candidateId) {
+  if (!candidateId) return {};
+  const resume = await Resume.findOne({ candidateId })
+    .sort({ createdAt: -1 })
+    .select('skills education projects experience')
+    .lean();
+  return resume || {};
+}
+
+function hasResumeData(data) {
+  return Boolean(
+    data?.skills?.length ||
+      data?.education?.length ||
+      data?.projects?.length ||
+      data?.experience?.length
+  );
 }
 
 function formatAdminSession(session) {
