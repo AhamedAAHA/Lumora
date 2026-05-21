@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useNavigate, useParams, Link } from 'react-router-dom';
+import { useParams, Link } from 'react-router-dom';
 import Editor from '@monaco-editor/react';
 import api from '../lib/api';
 import { Play, CheckCircle } from 'lucide-react';
@@ -18,7 +18,6 @@ function twoSum(nums, target) {
 
 export default function CodingRound() {
   const { sessionId } = useParams();
-  const navigate = useNavigate();
   const [code, setCode] = useState(DEFAULT_CODE);
   const [output, setOutput] = useState('');
   const [evaluation, setEvaluation] = useState(null);

@@ -19,6 +19,7 @@ const voiceRoutes = require('./routes/voice');
 const analyticsRoutes = require('./routes/analytics');
 const notificationRoutes = require('./routes/notifications');
 const reportRoutes = require('./routes/reports');
+const adminRoutes = require('./routes/admin');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -80,6 +81,7 @@ app.use('/api/voice', voiceRoutes);
 app.use('/api/analytics', analyticsRoutes);
 app.use('/api/notifications', notificationRoutes);
 app.use('/api/reports', reportRoutes);
+app.use('/api/admin', adminRoutes);
 
 app.use((err, _req, res, _next) => {
   console.error(err);

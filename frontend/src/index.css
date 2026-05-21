@@ -63,6 +63,14 @@
     @apply rounded-lg px-3 py-2 text-sm text-white/60 transition hover:bg-white/5 hover:text-white;
   }
 
+  .mono-button {
+    @apply inline-flex h-12 w-full items-center justify-center gap-2 rounded-full border border-white/15 bg-white text-sm font-semibold text-black transition hover:bg-white/90;
+  }
+
+  .mono-select {
+    @apply rounded-xl border border-white/10 bg-[#151515] px-3 text-sm text-white outline-none focus:border-white/30;
+  }
+
   .gradient-text {
     @apply bg-gradient-to-r from-white to-white/70 bg-clip-text text-transparent;
   }

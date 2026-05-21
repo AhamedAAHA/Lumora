@@ -8,15 +8,13 @@ import {
   Search,
   Bell,
   Sparkles,
-  Mic,
-  ArrowRight,
   AlertCircle,
   TrendingUp,
 } from 'lucide-react';
 
 const defaultQueue = [
   'Draft interview feedback for candidate #2841',
-  'Summarize technical round — React state question',
+  'Summarize technical round - React state question',
   'Schedule follow-up HR call',
 ];
 
@@ -28,7 +26,6 @@ const defaultBlockers = [
 export default function OSDashboard({
   compact = false,
   stats = {},
-  onPromptSubmit,
 }) {
   const pulse = stats.pulse ?? '128';
   const pulseUnit = stats.pulseUnit ?? 'k';
@@ -197,11 +194,11 @@ export default function OSDashboard({
               <ul className="mt-2 space-y-1.5 text-[11px] text-white/60">
                 <li className="flex gap-2">
                   <Calendar className="h-3 w-3 shrink-0 text-white/30" />
-                  10:00 Technical — Priya S.
+                  10:00 Technical - Priya S.
                 </li>
                 <li className="flex gap-2">
                   <Calendar className="h-3 w-3 shrink-0 text-white/30" />
-                  14:30 HR Final — Alex M.
+                  14:30 HR Final - Alex M.
                 </li>
                 <li className="flex gap-2">
                   <Calendar className="h-3 w-3 shrink-0 text-white/30" />
@@ -234,35 +231,6 @@ export default function OSDashboard({
           </div>
         </div>
       </div>
-
-      {/* Bottom AI bar */}
-      <form
-        className="shrink-0 border-t border-white/[0.06] p-3 md:p-4"
-        onSubmit={(e) => {
-          e.preventDefault();
-          const input = e.target.querySelector('input');
-          onPromptSubmit?.(input?.value);
-          if (input) input.value = '';
-        }}
-      >
-        <div className="flex items-center gap-3 rounded-2xl border border-white/[0.08] bg-black/40 px-4 py-3">
-          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white/10">
-            <Sparkles className="h-4 w-4" />
-          </span>
-          <input
-            type="text"
-            placeholder="Ask Lumora to schedule an interview or analyze a candidate..."
-            className="min-w-0 flex-1 bg-transparent text-sm text-white/80 outline-none placeholder:text-white/30"
-          />
-          <Mic className="h-4 w-4 shrink-0 text-white/40" />
-          <button
-            type="submit"
-            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-white text-black"
-          >
-            <ArrowRight className="h-4 w-4" />
-          </button>
-        </div>
-      </form>
     </div>
   );
 }

@@ -3,7 +3,10 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 export function useAntiCheat(onViolation) {
   const [warnings, setWarnings] = useState([]);
   const onViolationRef = useRef(onViolation);
-  onViolationRef.current = onViolation;
+
+  useEffect(() => {
+    onViolationRef.current = onViolation;
+  }, [onViolation]);
 
   const addWarning = useCallback((type, message) => {
     const w = { type, message, at: new Date().toISOString() };

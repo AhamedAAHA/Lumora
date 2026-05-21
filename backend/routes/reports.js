@@ -6,7 +6,10 @@ const router = express.Router();
 
 router.get('/:id', protect, async (req, res) => {
   const report = await Report.findById(req.params.id);
-  if (!report || report.candidateId.toString() !== req.user._id.toString()) {
+  const canRead =
+    report &&
+    (req.user.role === 'admin' || report.candidateId.toString() === req.user._id.toString());
+  if (!canRead) {
     return res.status(404).json({ message: 'Report not found' });
   }
   res.json(report);

@@ -1,3 +1,4 @@
+/* eslint-disable react-refresh/only-export-components */
 import { createContext, useContext, useEffect, useState } from 'react';
 import api from '../lib/api';
 
@@ -8,16 +9,19 @@ export function AuthProvider({ children }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const token = localStorage.getItem('lumora_token');
-    if (!token) {
-      setLoading(false);
-      return;
-    }
-    api
-      .get('/auth/me')
-      .then((res) => setUser(res.data))
-      .catch(() => localStorage.removeItem('lumora_token'))
-      .finally(() => setLoading(false));
+    const timer = window.setTimeout(() => {
+      const token = localStorage.getItem('lumora_token');
+      if (!token) {
+        setLoading(false);
+        return;
+      }
+      api
+        .get('/auth/me')
+        .then((res) => setUser(res.data))
+        .catch(() => localStorage.removeItem('lumora_token'))
+        .finally(() => setLoading(false));
+    }, 0);
+    return () => window.clearTimeout(timer);
   }, []);
 
   const login = async (email, password) => {
@@ -28,7 +32,7 @@ export function AuthProvider({ children }) {
       return data.user;
     } catch (err) {
       const msg = err.response?.data?.message || err.message;
-      throw new Error(msg);
+      throw new Error(msg, { cause: err });
     }
   };
 
@@ -40,7 +44,7 @@ export function AuthProvider({ children }) {
       return data.user;
     } catch (err) {
       const msg = err.response?.data?.message || err.message;
-      throw new Error(msg);
+      throw new Error(msg, { cause: err });
     }
   };
 
@@ -56,4 +60,6 @@ export function AuthProvider({ children }) {
   );
 }
 
-export const useAuth = () => useContext(AuthContext);
+export function useAuth() {
+  return useContext(AuthContext);
+}

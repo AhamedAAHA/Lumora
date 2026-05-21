@@ -17,6 +17,7 @@ const answerSchema = new mongoose.Schema({
 const interviewSessionSchema = new mongoose.Schema(
   {
     candidateId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+    jobRoleId: { type: mongoose.Schema.Types.ObjectId, ref: 'JobRole' },
     language: { type: String, enum: ['en', 'ta', 'si'], default: 'en' },
     personality: {
       type: String,
@@ -45,6 +46,7 @@ const interviewSessionSchema = new mongoose.Schema(
     questionIndex: { type: Number, default: 0 },
     totalQuestions: { type: Number, default: 8 },
     currentQuestion: String,
+    manualQuestions: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Question' }],
     lastComment: String,
     answers: [answerSchema],
     cheatEvents: [{ type: String, message: String, at: Date }],
@@ -52,7 +54,7 @@ const interviewSessionSchema = new mongoose.Schema(
     codingFeedback: String,
     status: {
       type: String,
-      enum: ['active', 'completed'],
+      enum: ['draft', 'active', 'completed', 'archived'],
       default: 'active',
     },
     overallScore: Number,

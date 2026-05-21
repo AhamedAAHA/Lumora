@@ -7,9 +7,9 @@ import Register from './pages/Register';
 
 const CandidateDashboard = lazy(() => import('./pages/CandidateDashboard'));
 const AdminDashboard = lazy(() => import('./pages/AdminDashboard'));
-const InterviewSetup = lazy(() => import('./pages/InterviewSetup'));
 const InterviewRoom = lazy(() => import('./pages/InterviewRoom'));
 const CodingRound = lazy(() => import('./pages/CodingRound'));
+const ReportPage = lazy(() => import('./pages/ReportPage'));
 
 function PageLoader() {
   return (
@@ -36,7 +36,7 @@ export default function App() {
       <Route
         path="/dashboard"
         element={
-          <ProtectedRoute>
+          <ProtectedRoute roles={['candidate']}>
             <CandidateDashboard />
           </ProtectedRoute>
         }
@@ -52,15 +52,15 @@ export default function App() {
       <Route
         path="/interview/setup"
         element={
-          <ProtectedRoute>
-            <InterviewSetup />
+          <ProtectedRoute roles={['candidate']}>
+            <Navigate to="/dashboard#assigned" replace />
           </ProtectedRoute>
         }
       />
       <Route
         path="/interview/:sessionId"
         element={
-          <ProtectedRoute>
+          <ProtectedRoute roles={['candidate']}>
             <InterviewRoom />
           </ProtectedRoute>
         }
@@ -68,8 +68,16 @@ export default function App() {
       <Route
         path="/interview/:sessionId/coding"
         element={
-          <ProtectedRoute>
+          <ProtectedRoute roles={['candidate']}>
             <CodingRound />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/reports/:reportId"
+        element={
+          <ProtectedRoute roles={['candidate', 'admin']}>
+            <ReportPage />
           </ProtectedRoute>
         }
       />

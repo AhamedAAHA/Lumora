@@ -1,8 +1,9 @@
 const express = require('express');
+const Answer = require('../models/Answer');
 const InterviewSession = require('../models/InterviewSession');
 const Report = require('../models/Report');
 const Notification = require('../models/Notification');
-const { protect } = require('../middleware/auth');
+const { protect, authorize } = require('../middleware/auth');
 const {
   generateFirstQuestion,
   evaluateAndRespond,
@@ -13,7 +14,7 @@ const { categorizeCandidate } = require('../services/recommendationEngine');
 
 const router = express.Router();
 
-router.post('/start', protect, async (req, res) => {
+router.post('/start', protect, authorize('candidate'), async (req, res) => {
   try {
     const { language, personality, round, includeCoding, resumeData } = req.body;
     const session = await InterviewSession.create({
@@ -43,7 +44,7 @@ router.post('/start', protect, async (req, res) => {
   }
 });
 
-router.get('/history', protect, async (req, res) => {
+router.get('/history', protect, authorize('candidate'), async (req, res) => {
   const sessions = await InterviewSession.find({
     candidateId: req.user._id,
     status: 'completed',
@@ -53,9 +54,58 @@ router.get('/history', protect, async (req, res) => {
   res.json(sessions);
 });
 
-router.get('/:id', protect, async (req, res) => {
+router.get('/assigned', protect, authorize('candidate'), async (req, res) => {
+  const sessions = await InterviewSession.find({
+    candidateId: req.user._id,
+    status: 'active',
+  })
+    .sort({ createdAt: -1 })
+    .select(
+      'language personality round includeCoding totalQuestions questionIndex currentQuestion status createdAt resumeData'
+    );
+
+  res.json(
+    sessions.map((session) => ({
+      ...formatSession(session),
+      createdAt: session.createdAt,
+      hasResume: Boolean(
+        session.resumeData?.skills?.length ||
+          session.resumeData?.education?.length ||
+          session.resumeData?.projects?.length ||
+          session.resumeData?.experience?.length
+      ),
+    }))
+  );
+});
+
+router.patch('/:id/resume', protect, authorize('candidate'), async (req, res) => {
+  try {
+    const session = await InterviewSession.findById(req.params.id);
+    if (!session || session.candidateId.toString() !== req.user._id.toString()) {
+      return res.status(404).json({ message: 'Session not found' });
+    }
+    if (session.status !== 'active' || session.questionIndex > 0) {
+      return res.status(400).json({ message: 'Resume can only be added before the interview starts' });
+    }
+
+    session.resumeData = req.body.resumeData || {};
+    const first = await generateFirstQuestion(session);
+    session.currentQuestion = first.question;
+    session.lastComment = first.comment || '';
+    await session.save();
+
+    res.json(formatSession(session));
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+router.get('/:id', protect, authorize('candidate'), async (req, res) => {
   const session = await InterviewSession.findById(req.params.id);
   if (!session || session.candidateId.toString() !== req.user._id.toString()) {
+    return res.status(404).json({ message: 'Session not found' });
+  }
+  if (session.status === 'draft' || session.status === 'archived') {
     return res.status(404).json({ message: 'Session not found' });
   }
   res.json(formatSession(session));
@@ -63,13 +113,15 @@ router.get('/:id', protect, async (req, res) => {
 
 router.post('/:id/cheat', protect, async (req, res) => {
   const session = await InterviewSession.findById(req.params.id);
-  if (!session) return res.status(404).json({ message: 'Not found' });
+  if (!session || session.candidateId.toString() !== req.user._id.toString()) {
+    return res.status(404).json({ message: 'Not found' });
+  }
   session.cheatEvents.push(req.body);
   await session.save();
   res.json({ ok: true });
 });
 
-router.post('/:id/answer', protect, async (req, res) => {
+router.post('/:id/answer', protect, authorize('candidate'), async (req, res) => {
   try {
     const session = await InterviewSession.findById(req.params.id);
     if (!session || session.candidateId.toString() !== req.user._id.toString()) {
@@ -78,11 +130,22 @@ router.post('/:id/answer', protect, async (req, res) => {
     if (session.status === 'completed') {
       return res.status(400).json({ message: 'Interview already completed' });
     }
+    if (session.status !== 'active') {
+      return res.status(400).json({ message: 'Interview is not available yet' });
+    }
 
     const { answer, metrics, cheatEvents } = req.body;
     const evaluation = await evaluateAndRespond(session, answer, metrics);
 
     session.answers.push({
+      question: session.currentQuestion,
+      answer,
+      metrics,
+      aiScore: evaluation.score,
+    });
+    await Answer.create({
+      sessionId: session._id,
+      candidateId: req.user._id,
       question: session.currentQuestion,
       answer,
       metrics,
@@ -172,7 +235,7 @@ router.post('/:id/answer', protect, async (req, res) => {
   }
 });
 
-router.post('/:id/coding/run', protect, async (req, res) => {
+router.post('/:id/coding/run', protect, authorize('candidate'), async (req, res) => {
   try {
     const { code } = req.body;
     const result = await evaluateCode(code);
@@ -182,10 +245,12 @@ router.post('/:id/coding/run', protect, async (req, res) => {
   }
 });
 
-router.post('/:id/coding/evaluate', protect, async (req, res) => {
+router.post('/:id/coding/evaluate', protect, authorize('candidate'), async (req, res) => {
   try {
     const session = await InterviewSession.findById(req.params.id);
-    if (!session) return res.status(404).json({ message: 'Not found' });
+    if (!session || session.candidateId.toString() !== req.user._id.toString()) {
+      return res.status(404).json({ message: 'Not found' });
+    }
     const result = await evaluateCode(req.body.code);
     session.codingScore = result.score;
     session.codingFeedback = result.feedback;

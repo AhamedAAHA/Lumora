@@ -7,20 +7,26 @@ import {
   Menu,
   X,
   Sparkles,
+  Shield,
 } from 'lucide-react';
 import { useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 
-const nav = [
-  { to: '/dashboard', label: 'Today', icon: LayoutDashboard },
-  { to: '/interview/setup', label: 'Interview', icon: Mic },
-  { to: '/dashboard#history', label: 'History', icon: History },
+const candidateNav = [
+  { to: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
+  { to: '/dashboard#assigned', label: 'Interviews', icon: Mic },
+  { to: '/dashboard#history', label: 'Reports', icon: History },
+];
+
+const adminNav = [
+  { to: '/admin', label: 'Admin', icon: Shield },
 ];
 
 export default function AppShell({ children, title, subtitle, actions }) {
   const { user, logout } = useAuth();
   const location = useLocation();
   const [mobileOpen, setMobileOpen] = useState(false);
+  const nav = user?.role === 'admin' ? adminNav : candidateNav;
 
   return (
     <div className="mountain-bg flex min-h-screen w-full flex-col">
@@ -35,17 +41,11 @@ export default function AppShell({ children, title, subtitle, actions }) {
           <span className="text-lg font-semibold">Lumora</span>
         </Link>
         <nav className="hidden items-center gap-8 text-sm text-white/50 md:flex">
-          <Link to="/dashboard" className="hover:text-white">
-            Dashboard
-          </Link>
-          <Link to="/interview/setup" className="hover:text-white">
-            Interviews
-          </Link>
-          {user?.role === 'admin' && (
-            <Link to="/admin" className="hover:text-white">
-              Admin
+          {nav.map((item) => (
+            <Link key={item.to} to={item.to} className="hover:text-white">
+              {item.label}
             </Link>
-          )}
+          ))}
         </nav>
         <div className="flex items-center gap-3">
           {actions}
@@ -69,7 +69,7 @@ export default function AppShell({ children, title, subtitle, actions }) {
             <Sparkles className="h-5 w-5" />
           </span>
           {nav.map((item) => {
-            const active = location.pathname === item.to;
+            const active = location.pathname === item.to.split('#')[0];
             return (
               <Link
                 key={item.to}

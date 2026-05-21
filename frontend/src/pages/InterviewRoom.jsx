@@ -67,7 +67,9 @@ export default function InterviewRoom() {
       setCheatLog((prev) => [...prev, w]);
       try {
         await api.post(`/interviews/${sessionId}/cheat`, w);
-      } catch (_) {}
+      } catch (err) {
+        console.warn('Could not report anti-cheat event', err);
+      }
     },
     [sessionId]
   );
@@ -101,7 +103,8 @@ export default function InterviewRoom() {
         audioRef.current = audio;
         audio.onended = () => setSpeaking(false);
         await audio.play();
-      } catch {
+      } catch (err) {
+        console.warn('Voice playback unavailable', err);
         if (!cancelled) setSpeaking(false);
       }
     })();

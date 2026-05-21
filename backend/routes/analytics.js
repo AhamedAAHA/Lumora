@@ -33,8 +33,14 @@ router.get('/candidate', protect, async (req, res) => {
   res.json({
     avgScore,
     scoreHistory,
-    weakAreas: [...new Set(weakAreas)].slice(0, 5) || ['Complete more interviews'],
-    strengths: [...new Set(strengths)].slice(0, 5) || ['Getting started'],
+    weakAreas:
+      [...new Set(weakAreas)].slice(0, 5).length > 0
+        ? [...new Set(weakAreas)].slice(0, 5)
+        : ['Complete more interviews'],
+    strengths:
+      [...new Set(strengths)].slice(0, 5).length > 0
+        ? [...new Set(strengths)].slice(0, 5)
+        : ['Getting started'],
   });
 });
 
@@ -103,21 +109,9 @@ router.get('/admin', protect, authorize('admin'), async (req, res) => {
     successRate,
     totalInterviews: sessions.length,
     totalCandidates: candidates.length,
-    mostFailedQuestions:
-      mostFailedQuestions.length > 0
-        ? mostFailedQuestions
-        : [{ question: 'System design scalability', failRate: 42 }],
-    topCandidates:
-      topCandidates.length > 0
-        ? topCandidates
-        : [{ name: 'No data yet', score: 0 }],
-    recommendationBreakdown:
-      recommendationBreakdown.length > 0
-        ? recommendationBreakdown
-        : [
-            { name: 'shortlisted', value: 1 },
-            { name: 'needs improvement', value: 1 },
-          ],
+    mostFailedQuestions,
+    topCandidates,
+    recommendationBreakdown,
   });
 });
 

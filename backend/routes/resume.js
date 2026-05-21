@@ -3,6 +3,7 @@ const fs = require('fs');
 const upload = require('../middleware/upload');
 const { protect } = require('../middleware/auth');
 const { parseResumePdf } = require('../services/resumeParser');
+const Resume = require('../models/Resume');
 
 const router = express.Router();
 
@@ -19,6 +20,14 @@ router.post('/parse', protect, (req, res, next) => {
       return res.status(400).json({ message: 'PDF required' });
     }
     const data = await parseResumePdf(req.file.path);
+    await Resume.create({
+      candidateId: req.user._id,
+      fileName: req.file.originalname,
+      skills: data.skills || [],
+      education: data.education || [],
+      projects: data.projects || [],
+      experience: data.experience || [],
+    });
     fs.unlink(req.file.path, () => {});
     res.json(data);
   } catch (err) {
@@ -31,6 +40,11 @@ router.post('/parse', protect, (req, res, next) => {
         : msg,
     });
   }
+});
+
+router.get('/mine', protect, async (req, res) => {
+  const resumes = await Resume.find({ candidateId: req.user._id }).sort({ createdAt: -1 }).limit(10);
+  res.json(resumes);
 });
 
 module.exports = router;

@@ -10,11 +10,18 @@ const signToken = (id) =>
 
 router.post('/register', async (req, res) => {
   try {
-    const { name, email, password, role } = req.body;
+    const name = String(req.body.name || '').trim();
+    const email = String(req.body.email || '').trim().toLowerCase();
+    const password = String(req.body.password || '');
+    const role = ['candidate', 'admin'].includes(req.body.role) ? req.body.role : 'candidate';
+
+    if (!name || !email || password.length < 6) {
+      return res.status(400).json({ message: 'Name, valid email, and 6+ character password are required' });
+    }
     if (await User.findOne({ email })) {
       return res.status(400).json({ message: 'Email already registered' });
     }
-    const user = await User.create({ name, email, password, role: role || 'candidate' });
+    const user = await User.create({ name, email, password, role });
     const token = signToken(user._id);
     res.status(201).json({
       token,
@@ -29,7 +36,8 @@ router.post('/register', async (req, res) => {
 
 router.post('/login', async (req, res) => {
   try {
-    const { email, password } = req.body;
+    const email = String(req.body.email || '').trim().toLowerCase();
+    const password = String(req.body.password || '');
     const user = await User.findOne({ email });
     if (!user || !(await user.comparePassword(password))) {
       return res.status(401).json({ message: 'Invalid credentials' });
