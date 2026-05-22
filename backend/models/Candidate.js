@@ -53,7 +53,7 @@ const candidateSchema = new mongoose.Schema(
     ],
     followUpQueue: [
       {
-        questionKey: { type: String, required: true },
+        questionKey: { type: String, default: '' },
         questionText: String,
         parentQuestionId: { type: mongoose.Schema.Types.Mixed },
         questionType: { type: String, default: 'followup' },

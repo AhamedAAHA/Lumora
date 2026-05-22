@@ -478,6 +478,17 @@ router.get('/candidate/interview/:pinCode', async (req, res) => {
 
 // ─── Candidate: CV Upload ─────────────────────────────────────────────────────
 
+function sanitizeFollowUpQueue(candidate) {
+  const queue = candidate.followUpQueue || [];
+  candidate.followUpQueue = queue.map((item, i) => ({
+    questionKey: item.questionKey || `followup-${i}-${Date.now()}`,
+    questionText: item.questionText || '',
+    parentQuestionId: item.parentQuestionId,
+    questionType: item.questionType || 'followup',
+  }));
+  candidate.markModified('followUpQueue');
+}
+
 async function rejectIfInterviewClosed(req, res) {
   const interview = await Interview.findById(req.candidate.interviewId);
   if (!interview) return res.status(404).json({ message: 'Interview not found' });
@@ -771,14 +782,28 @@ router.post('/candidate/submit-answer', protectCandidate, async (req, res) => {
     if (!current) return res.status(400).json({ message: 'No active question' });
 
     const metrics = req.body.metrics || {};
-    const evaluation = await evaluateAnswer(current.text, answerText, {
-      jobRole: interview.jobRole,
-      language: req.candidate.language || interview.language,
-      personality: req.candidate.personality || interview.personality,
-      difficulty: req.candidate.difficulty,
-      round: req.candidate.round || interview.round,
-      metrics,
-    });
+    let evaluation;
+    try {
+      evaluation = await evaluateAnswer(current.text, answerText, {
+        jobRole: interview.jobRole,
+        language: req.candidate.language || interview.language,
+        personality: req.candidate.personality || interview.personality,
+        difficulty: req.candidate.difficulty,
+        round: req.candidate.round || interview.round,
+        metrics,
+      });
+    } catch (evalErr) {
+      console.warn('[submit-answer] evaluateAnswer failed:', evalErr.message);
+      const words = answerText.trim().split(/\s+/).filter(Boolean).length;
+      evaluation = {
+        score: words < 15 ? 4 : words < 40 ? 6 : 8,
+        feedback: 'Answer recorded.',
+        conversationalComment: 'Thank you. Let us continue.',
+        needsFollowUp: words < 25,
+        followUpQuestion: words < 25 ? 'Can you elaborate with a specific example?' : '',
+        nextDifficulty: req.candidate.difficulty || 'medium',
+      };
+    }
 
     req.candidate.difficulty = evaluation.nextDifficulty || req.candidate.difficulty;
     req.candidate.lastInterviewerComment = evaluation.conversationalComment || '';
@@ -827,15 +852,23 @@ router.post('/candidate/submit-answer', protectCandidate, async (req, res) => {
     }
 
     req.candidate.currentQuestionIndex += 1;
+    sanitizeFollowUpQueue(req.candidate);
     const updatedQueue = await buildQuestionQueue(interview._id, req.candidate);
     const nextQ = getCurrentQuestion(updatedQueue, req.candidate.currentQuestionIndex);
     const done = !nextQ;
     const total = updatedQueue.length;
     const progressPercent = total
-      ? Math.round((req.candidate.currentQuestionIndex / total) * 100)
+      ? Math.min(100, Math.round((req.candidate.currentQuestionIndex / total) * 100))
       : 0;
 
-    await req.candidate.save();
+    try {
+      await req.candidate.save();
+    } catch (saveErr) {
+      console.error('[submit-answer] save failed:', saveErr.message);
+      return res.status(400).json({
+        message: saveErr.message || 'Could not save progress. Please try again.',
+      });
+    }
 
     if (done) {
       return res.json({
@@ -860,7 +893,7 @@ router.post('/candidate/submit-answer', protectCandidate, async (req, res) => {
       },
     });
   } catch (err) {
-    res.status(500).json({ message: err.message });
+    return sendRouteError(res, err);
   }
 });
 

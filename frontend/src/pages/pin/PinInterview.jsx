@@ -18,6 +18,7 @@ export default function PinInterview() {
   const [speaking, setSpeaking] = useState(false);
   const [feedback, setFeedback] = useState('');
   const [submitError, setSubmitError] = useState('');
+  const submitLockRef = useRef(false);
   const [submitting, setSubmitting] = useState(false);
   const audioRef = useRef(null);
   const voicePlayedRef = useRef('');
@@ -93,13 +94,14 @@ export default function PinInterview() {
   }, [question?.text, playVoice]);
 
   const submitAnswer = async () => {
-    if (!answer.trim() || submitting) return;
+    if (!answer.trim() || submitting || submitLockRef.current) return;
+    submitLockRef.current = true;
     setSubmitting(true);
     setSubmitError('');
     const metrics = analyzeAnswer(answer, getElapsed());
     startTimer();
     try {
-      const { data } = await pinApi.post('/candidate/submit-answer', { answer, metrics });
+      const { data } = await pinApi.post('/candidate/submit-answer', { answer: answer.trim(), metrics });
       setFeedback(
         data.evaluation?.feedback ? `Score ${data.evaluation.score}/10 — ${data.evaluation.feedback}` : ''
       );
@@ -113,6 +115,9 @@ export default function PinInterview() {
         navigate('/pin/done', { replace: true });
         return;
       }
+      if (!data.nextQuestion?.text) {
+        throw new Error('No next question received. Please try again.');
+      }
       voicePlayedRef.current = '';
       setQuestion(data.nextQuestion);
       setAnswer('');
@@ -125,9 +130,11 @@ export default function PinInterview() {
       }));
       setTimeout(() => setFeedback(''), 4000);
     } catch (err) {
-      setSubmitError(err.response?.data?.message || 'Submit failed');
+      const msg = err.response?.data?.message || err.message || 'Submit failed';
+      setSubmitError(msg);
     } finally {
       setSubmitting(false);
+      submitLockRef.current = false;
     }
   };
 
@@ -145,7 +152,14 @@ export default function PinInterview() {
     [session?.metricsHistory, history]
   );
 
-  const progress = session?.progress?.percent ?? 0;
+  const progress = useMemo(() => {
+    const p = session?.progress;
+    if (p?.percent != null && p.percent > 0) return p.percent;
+    if (p?.current && p?.total) {
+      return Math.min(100, Math.round((p.current / p.total) * 100));
+    }
+    return 0;
+  }, [session?.progress]);
 
   if (!session || !question) {
     return (
@@ -219,7 +233,7 @@ export default function PinInterview() {
               })
             }
             listening={listening}
-            voiceError={voiceError || submitError}
+            voiceError={[voiceError, submitError].filter(Boolean).join(' ')}
             submitting={submitting}
             extraActions={
               session.includeCoding ? (

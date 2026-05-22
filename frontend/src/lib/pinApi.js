@@ -2,7 +2,7 @@ import axios from 'axios';
 
 const pinApi = axios.create({
   baseURL: import.meta.env.VITE_API_URL || '/api',
-  timeout: 60000,
+  timeout: 90000,
   headers: { 'Content-Type': 'application/json' },
 });
 
@@ -20,7 +20,11 @@ pinApi.interceptors.response.use(
   (res) => res,
   (error) => {
     if (!error.response) {
-      error.message = 'Cannot reach server. Run: npm run dev';
+      if (error.code === 'ECONNABORTED') {
+        error.message = 'Request timed out. Check your connection and try again.';
+      } else {
+        error.message = 'Cannot reach server. Run: npm run dev';
+      }
     }
     return Promise.reject(error);
   }

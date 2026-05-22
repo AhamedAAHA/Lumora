@@ -23,23 +23,32 @@ const PERSONALITY_PROMPTS = {
     'You are a technical lead. Evaluate system design, collaboration, and technical leadership.',
 };
 
-async function chatJson(system, user, language = 'en') {
+async function chatJson(system, user, language = 'en', timeoutMs = 22000) {
   const client = getClient();
   if (!client) return null;
   const langNote = `Respond in ${LANG_NAMES[language] || 'English'}.`;
-  const res = await client.chat.completions.create({
-    model: 'gpt-4o-mini',
-    messages: [
-      { role: 'system', content: `${system}\n${langNote}` },
-      { role: 'user', content: user },
-    ],
-    temperature: 0.65,
-    response_format: { type: 'json_object' },
-  });
-  const text = res.choices[0]?.message?.content?.trim();
-  if (!text) return null;
   try {
-    return JSON.parse(text.replace(/```json|```/g, '').trim());
+    const res = await Promise.race([
+      client.chat.completions.create({
+        model: 'gpt-4o-mini',
+        messages: [
+          { role: 'system', content: `${system}\n${langNote}` },
+          { role: 'user', content: user },
+        ],
+        temperature: 0.65,
+        response_format: { type: 'json_object' },
+      }),
+      new Promise((_, reject) => {
+        setTimeout(() => reject(new Error('AI request timed out')), timeoutMs);
+      }),
+    ]);
+    const text = res.choices[0]?.message?.content?.trim();
+    if (!text) return null;
+    try {
+      return JSON.parse(text.replace(/```json|```/g, '').trim());
+    } catch {
+      return null;
+    }
   } catch {
     return null;
   }
