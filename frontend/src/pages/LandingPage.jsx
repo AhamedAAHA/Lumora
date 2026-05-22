@@ -70,13 +70,6 @@ export default function LandingPage() {
   return (
     <div className="mountain-bg min-h-screen w-full overflow-x-hidden">
       <Navbar />
-      <div className="relative mx-auto max-w-7xl px-4 pt-24 md:px-8">
-        <div className="legacy-banner text-center md:text-left">
-          <a href="/login" className="text-indigo-400 hover:underline font-medium">Admin sign in</a>
-          <span className="mx-2 text-white/30">·</span>
-          <a href="/pin" className="text-indigo-400 hover:underline">Candidate PIN interview</a>
-        </div>
-      </div>
       <Hero />
 
       <section id="features" ref={featuresRef} className="relative w-full py-20 md:py-28">

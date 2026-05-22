@@ -43,6 +43,7 @@ const emptyPinInterview = {
   personality: 'friendly_hr',
   round: 'technical',
   difficulty: 'medium',
+  aiQuestionCount: '5',
   includeCoding: false,
   pinExpiryHours: '72',
 };
@@ -89,6 +90,7 @@ export default function AdminDashboard() {
   const [generatedPin, setGeneratedPin] = useState(null);
   const [editingPinId, setEditingPinId] = useState('');
   const [pinEditDraft, setPinEditDraft] = useState(null);
+  const [pinAnswersView, setPinAnswersView] = useState(null);
   const [reports, setReports] = useState([]);
   const [jobRoles, setJobRoles] = useState([]);
   const [questionBank, setQuestionBank] = useState([]);
@@ -154,8 +156,11 @@ export default function AdminDashboard() {
     try {
       const { data } = await api.get('/analytics/live');
       setLiveDash(data);
-    } catch (_) {}
-    setDashLoading(false);
+    } catch {
+      // Live dashboard refresh is best-effort.
+    } finally {
+      setDashLoading(false);
+    }
   };
 
   useEffect(() => {
@@ -265,17 +270,6 @@ export default function AdminDashboard() {
     }
   };
 
-  const createInterview = (event) => {
-    event.preventDefault();
-    run(interviewForm.publish ? 'Interview published' : 'Interview saved as draft', async () => {
-      await api.post('/admin/interviews', {
-        ...interviewForm,
-        totalQuestions: Number(interviewForm.totalQuestions),
-      });
-      setInterviewForm(emptyInterview);
-    });
-  };
-
   const publishInterview = (id) =>
     run('Interview published', () => api.patch(`/admin/interviews/${id}`, { publish: true }));
 
@@ -305,6 +299,7 @@ export default function AdminDashboard() {
         personality: pinForm.personality,
         round: pinForm.round,
         difficulty: pinForm.difficulty,
+        aiQuestionCount: Number(pinForm.aiQuestionCount) || 5,
         includeCoding: pinForm.includeCoding,
       });
       try {
@@ -375,6 +370,7 @@ export default function AdminDashboard() {
         personality: data.interview.personality || 'friendly_hr',
         round: data.interview.round || 'technical',
         difficulty: data.interview.difficulty || 'medium',
+        aiQuestionCount: String(data.interview.aiQuestionCount || 5),
         includeCoding: !!data.interview.includeCoding,
         customQuestions: (data.customQuestions || []).map((q) => ({
           id: q._id,
@@ -383,6 +379,37 @@ export default function AdminDashboard() {
       });
     } catch (err) {
       setError(err.response?.data?.message || err.message);
+    }
+  };
+
+  const viewPinAnswers = async (iv) => {
+    const interviewId = iv.id || iv._id;
+    if (!interviewId) return;
+    setPinAnswersView({
+      title: iv.title || 'PIN interview',
+      candidateName: iv.candidateName || 'Candidate',
+      answers: [],
+      loading: true,
+    });
+    try {
+      setError('');
+      const { data } = await api.get(`/interviews/${interviewId}`);
+      setPinAnswersView({
+        title: data.interview?.title || iv.title,
+        candidateName: data.candidate?.name || data.interview?.candidateName || iv.candidateName,
+        answers: Array.isArray(data.answers) ? data.answers : [],
+        partial: !data.result,
+        loading: false,
+      });
+    } catch (err) {
+      setPinAnswersView({
+        title: iv.title || 'PIN interview',
+        candidateName: iv.candidateName || 'Candidate',
+        answers: [],
+        partial: true,
+        loading: false,
+        error: err.response?.data?.message || err.message,
+      });
     }
   };
 
@@ -397,6 +424,7 @@ export default function AdminDashboard() {
         personality: pinEditDraft.personality,
         round: pinEditDraft.round,
         difficulty: pinEditDraft.difficulty,
+        aiQuestionCount: Number(pinEditDraft.aiQuestionCount) || 5,
         includeCoding: pinEditDraft.includeCoding,
         customQuestions: pinEditDraft.customQuestions,
       });
@@ -426,6 +454,59 @@ export default function AdminDashboard() {
 
   return (
     <AppShell title="Admin Dashboard" subtitle="Manage interviews, candidates, reports, and publishing.">
+      {pinAnswersView && (
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/80 p-4">
+          <div className="max-h-[85vh] w-full max-w-2xl overflow-y-auto rounded-2xl border border-white/20 bg-[#101116] p-6 text-white shadow-2xl ring-1 ring-white/10">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <h3 className="text-lg font-semibold text-white">{pinAnswersView.title}</h3>
+                <p className="mt-1 text-sm text-white/50">
+                  {pinAnswersView.candidateName}
+                  {pinAnswersView.partial ? ' · in progress' : ''}
+                </p>
+              </div>
+              <button
+                type="button"
+                className="btn-ghost text-sm"
+                onClick={() => setPinAnswersView(null)}
+              >
+                Close
+              </button>
+            </div>
+            {pinAnswersView.loading ? (
+              <p className="mt-6 text-sm text-white/55">Loading submitted answers...</p>
+            ) : pinAnswersView.error ? (
+              <p className="mt-6 rounded-xl border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-200">
+                {pinAnswersView.error}
+              </p>
+            ) : pinAnswersView.answers.length === 0 ? (
+              <p className="mt-6 text-sm text-white/45">No answers submitted yet.</p>
+            ) : (
+              <ul className="mt-5 space-y-4">
+                {pinAnswersView.answers.map((a, idx) => (
+                  <li
+                    key={a._id || idx}
+                    className="rounded-xl border border-white/10 bg-white/[0.03] p-4"
+                  >
+                    <p className="text-xs uppercase tracking-wide text-indigo-300/80">
+                      Q{idx + 1} · {a.questionType}
+                    </p>
+                    <p className="mt-2 text-sm font-medium text-white/90">{a.questionText}</p>
+                    <p className="mt-2 text-sm text-white/65">{a.candidateAnswer}</p>
+                    {a.aiScore != null && (
+                      <p className="mt-2 text-xs text-white/45">
+                        Score {a.aiScore}/10
+                        {a.aiFeedback ? ` — ${a.aiFeedback}` : ''}
+                      </p>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        </div>
+      )}
+
       <div className="mx-auto w-full max-w-7xl pb-10">
         {(error || message) && (
           <div className="mb-5 rounded-xl border border-white/10 bg-white/[0.04] px-4 py-3 text-sm text-white/70">
@@ -671,6 +752,14 @@ export default function AdminDashboard() {
                       ]}
                     />
                   </div>
+                  <Input
+                    type="number"
+                    min="1"
+                    max="20"
+                    value={pinForm.aiQuestionCount}
+                    onChange={(aiQuestionCount) => setPinForm((f) => ({ ...f, aiQuestionCount }))}
+                    placeholder="Total questions candidate will face"
+                  />
                   <Select
                     value={pinForm.personality}
                     onChange={(personality) => setPinForm((f) => ({ ...f, personality }))}
@@ -742,6 +831,16 @@ export default function AdminDashboard() {
                             ]}
                           />
                         </div>
+                        <Input
+                          type="number"
+                          min="1"
+                          max="20"
+                          value={pinEditDraft.aiQuestionCount}
+                          onChange={(aiQuestionCount) =>
+                            setPinEditDraft((d) => ({ ...d, aiQuestionCount }))
+                          }
+                          placeholder="Total questions candidate will face"
+                        />
                         <p className="text-xs text-white/45">Custom questions</p>
                         {pinEditDraft.customQuestions.map((q, idx) => (
                           <Input
@@ -792,7 +891,7 @@ export default function AdminDashboard() {
                       <Row
                         key={iv.id}
                         title={iv.title}
-                        meta={`${iv.candidateName} · ${iv.candidateEmail} · ${formatLabel(iv.status)} · ${iv.candidateStatus || 'pending'}`}
+                        meta={`${iv.candidateName} · ${iv.candidateEmail} · ${iv.aiQuestionCount || 5} total questions · ${formatLabel(iv.status)} · ${iv.candidateStatus || 'pending'}`}
                       >
                         {iv.pinCode ? (
                           <span className="rounded-lg border border-indigo-500/40 bg-indigo-500/10 px-3 py-1 font-mono text-lg tracking-widest text-indigo-200">
@@ -816,6 +915,15 @@ export default function AdminDashboard() {
                           <IconButton label="Edit interview" onClick={() => startEditPin(iv)}>
                             <Pencil className="h-4 w-4" />
                           </IconButton>
+                        )}
+                        {(iv.candidateStatus === 'interview_started' || iv.hasResult) && (
+                          <button
+                            type="button"
+                            onClick={() => viewPinAnswers(iv)}
+                            className="btn-secondary inline-flex h-9 items-center px-3 text-xs"
+                          >
+                            Answers
+                          </button>
                         )}
                         {iv.hasResult && (
                           <a
@@ -1160,13 +1268,14 @@ function Row({ title, meta, children }) {
   );
 }
 
-function Input({ value, onChange, placeholder, type = 'text' }) {
+function Input({ value, onChange, placeholder, type = 'text', ...props }) {
   return (
     <input
       type={type}
       value={value}
       onChange={(event) => onChange(event.target.value)}
       placeholder={placeholder}
+      {...props}
       className="h-11 w-full rounded-xl border border-white/10 bg-white/[0.03] px-3 text-sm text-white outline-none placeholder:text-white/30 focus:border-white/30"
     />
   );

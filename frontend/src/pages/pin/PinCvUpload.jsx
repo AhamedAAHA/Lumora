@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Upload, Sparkles } from 'lucide-react';
 import PinShell from '../../layouts/PinShell';
-import pinApi, { getPinToken, routeByPinStatus } from '../../lib/pinApi';
+import pinApi, { getPinToken } from '../../lib/pinApi';
 
 export default function PinCvUpload() {
   const navigate = useNavigate();

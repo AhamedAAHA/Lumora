@@ -9,7 +9,6 @@ import {
   Bell,
   Sparkles,
   AlertCircle,
-  TrendingUp,
 } from 'lucide-react';
 
 export default function OSDashboard({ compact = false, stats = {}, loading = false }) {
