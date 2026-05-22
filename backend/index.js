@@ -24,6 +24,7 @@ const lumoraApiRoutes = require('./routes/lumoraApi');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
+const enableRateLimit = process.env.ENABLE_RATE_LIMIT === 'true';
 
 connectDB().catch((err) => {
   console.error('MongoDB connection failed:', err.message);
@@ -60,12 +61,22 @@ app.use(
   })
 );
 app.use(express.json({ limit: '2mb' }));
-app.use(
-  rateLimit({
-    windowMs: 15 * 60 * 1000,
-    max: 200,
-  })
-);
+if (enableRateLimit) {
+  app.use(
+    rateLimit({
+      windowMs: 15 * 60 * 1000,
+      max: 200,
+      skip: (req) =>
+        req.path === '/api/health' ||
+        req.path.startsWith('/api/candidate') ||
+        req.path.startsWith('/api/voice') ||
+        req.path.startsWith('/audio'),
+      standardHeaders: true,
+      legacyHeaders: false,
+      message: { message: 'Too many requests. Please wait a minute and try again.' },
+    })
+  );
+}
 
 app.get('/api/health', (_, res) =>
   res.json({

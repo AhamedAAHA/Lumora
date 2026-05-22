@@ -1,5 +1,4 @@
 const express = require('express');
-const mongoose = require('mongoose');
 const jwt = require('jsonwebtoken');
 const path = require('path');
 const fs = require('fs');
@@ -29,7 +28,7 @@ const {
 const { getPinAdminAnalytics, getCandidateHistory } = require('../services/pinAnalytics');
 const Notification = require('../models/Notification');
 const { generateUniquePin } = require('../utils/pinCode');
-const { buildQuestionQueue, getCurrentQuestion } = require('../utils/interviewFlow');
+const { buildQuestionQueue, sliceQueueToPlan, getCurrentQuestion, computePlannedTotal } = require('../utils/interviewFlow');
 const {
   applyInterviewFields,
   applyCandidatePrefs,
@@ -50,6 +49,74 @@ function sendRouteError(res, err) {
 
 const router = express.Router();
 
+function getPlannedQuestionTotal(candidate, queue, configuredTotal) {
+  const configured = Number(configuredTotal);
+  const configuredLimit = Number.isFinite(configured) && configured > 0 ? Math.round(configured) : queue.length;
+  if (candidate.status === 'interview_started' && candidate.plannedQuestionTotal > 0) {
+    return Math.min(candidate.plannedQuestionTotal, configuredLimit, queue.length);
+  }
+  return computePlannedTotal(queue, configuredLimit);
+}
+
+/** Lock the candidate session to the configured question plan and strip legacy follow-ups. */
+async function ensurePlannedTotal(candidate, queue, configuredTotal) {
+  const computed = computePlannedTotal(queue, configuredTotal);
+  let changed = false;
+
+  if (candidate.followUpQueue?.length) {
+    candidate.followUpQueue = [];
+    candidate.markModified('followUpQueue');
+    changed = true;
+  }
+
+  const stored = Number(candidate.plannedQuestionTotal) || 0;
+  if (!stored || stored > computed) {
+    candidate.plannedQuestionTotal = computed;
+    changed = true;
+  }
+
+  if (changed) await candidate.save();
+  return candidate.plannedQuestionTotal;
+}
+
+function getPlannedQueue(candidate, queue, configuredTotal) {
+  const total = getPlannedQuestionTotal(candidate, queue, configuredTotal);
+  return sliceQueueToPlan(queue, total);
+}
+
+function getQuestionWithinPlan(queue, candidate, configuredTotal, index = candidate.currentQuestionIndex) {
+  const planned = getPlannedQueue(candidate, queue, configuredTotal);
+  if (!planned.length || index >= planned.length) return null;
+  return getCurrentQuestion(planned, index);
+}
+
+function buildProgress(candidate, queue, configuredTotal) {
+  const total = getPlannedQuestionTotal(candidate, queue, configuredTotal);
+  const current = getQuestionWithinPlan(queue, candidate, configuredTotal);
+  const currentNumber = current ? Math.min(candidate.currentQuestionIndex + 1, total) : total;
+  const percent = total
+    ? Math.min(100, Math.round((candidate.currentQuestionIndex / total) * 100))
+    : 0;
+  return { current: currentNumber, total, percent };
+}
+
+async function clearLegacyFollowUps(candidate) {
+  if (!candidate.followUpQueue?.length) return;
+  candidate.followUpQueue = [];
+  candidate.markModified('followUpQueue');
+  await candidate.save();
+}
+
+function finalizePayload(req, interview, evaluation = null) {
+  return {
+    completed: false,
+    finalize: true,
+    evaluation,
+    interviewerComment: req.candidate.lastInterviewerComment,
+    includeCoding: interview.includeCoding && !req.candidate.codingSubmitted,
+  };
+}
+
 const signAdminToken = (id) =>
   jwt.sign({ id, role: 'admin' }, process.env.JWT_SECRET, { expiresIn: '7d' });
 
@@ -69,6 +136,16 @@ function toBool(value) {
   if (typeof value === 'boolean') return value;
   if (typeof value === 'string') return ['true', '1', 'on', 'yes'].includes(value.toLowerCase());
   return Boolean(value);
+}
+
+function safeAiQuestionCount(value, fallback = 5) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return fallback;
+  return Math.min(20, Math.max(1, Math.round(n)));
+}
+
+async function getCustomQuestionCount(interviewId) {
+  return CustomQuestion.countDocuments({ interviewId });
 }
 
 // ─── Admin Auth ───────────────────────────────────────────────────────────────
@@ -110,6 +187,7 @@ router.post('/interviews/create', protect, authorize('admin'), async (req, res) 
       round: pickEnum('round', req.body.round, 'technical'),
       includeCoding: toBool(req.body.includeCoding),
       difficulty: pickEnum('difficulty', req.body.difficulty, 'medium'),
+      aiQuestionCount: safeAiQuestionCount(req.body.aiQuestionCount),
       createdBy: req.user._id,
     });
 
@@ -146,7 +224,7 @@ router.get('/interviews', protect, authorize('admin'), async (_req, res) => {
         ...formatInterview(iv),
         candidateStatus: candidate?.status || 'pending',
         questionCount,
-        aiQuestionCount: aiCount,
+        generatedAiQuestionCount: aiCount,
         hasResult: !!result,
         resultId: result?._id,
       };
@@ -197,6 +275,9 @@ router.put('/interviews/:id', protect, authorize('admin'), async (req, res) => {
   applyInterviewFields(interview, req.body, sanitize);
   if (req.body.includeCoding !== undefined) {
     interview.includeCoding = toBool(req.body.includeCoding);
+  }
+  if (req.body.aiQuestionCount !== undefined) {
+    interview.aiQuestionCount = safeAiQuestionCount(req.body.aiQuestionCount, interview.aiQuestionCount || 5);
   }
   if (interview.status === 'active' && !interview.pinCode) {
     return res.status(400).json({
@@ -386,10 +467,6 @@ router.get('/interviews/:id/report', protect, authorize('admin'), async (req, re
   const answers = await CandidateAnswer.find({ interviewId: interview._id }).sort({ createdAt: 1 });
   const result = await InterviewResult.findOne({ interviewId: interview._id });
 
-  if (!result) {
-    return res.status(404).json({ message: 'Report not available yet. Candidate must complete the interview.' });
-  }
-
   res.json({
     interview: formatInterview(interview),
     candidate: candidate ? formatCandidate(candidate) : null,
@@ -398,7 +475,8 @@ router.get('/interviews/:id/report', protect, authorize('admin'), async (req, re
     customQuestions,
     aiQuestions,
     answers,
-    result,
+    result: result || null,
+    partial: !result && answers.length > 0,
   });
 });
 
@@ -478,17 +556,6 @@ router.get('/candidate/interview/:pinCode', async (req, res) => {
 
 // ─── Candidate: CV Upload ─────────────────────────────────────────────────────
 
-function sanitizeFollowUpQueue(candidate) {
-  const queue = candidate.followUpQueue || [];
-  candidate.followUpQueue = queue.map((item, i) => ({
-    questionKey: item.questionKey || `followup-${i}-${Date.now()}`,
-    questionText: item.questionText || '',
-    parentQuestionId: item.parentQuestionId,
-    questionType: item.questionType || 'followup',
-  }));
-  candidate.markModified('followUpQueue');
-}
-
 async function rejectIfInterviewClosed(req, res) {
   const interview = await Interview.findById(req.candidate.interviewId);
   if (!interview) return res.status(404).json({ message: 'Interview not found' });
@@ -551,6 +618,9 @@ router.post('/candidate/upload-cv', protectCandidate, (req, res, next) => {
     req.candidate.extractedCertifications = normalized.certifications;
     req.candidate.extractedTechnologies = normalized.technologies;
     req.candidate.status = 'cv_uploaded';
+    req.candidate.currentQuestionIndex = 0;
+    req.candidate.plannedQuestionTotal = 0;
+    req.candidate.followUpQueue = [];
     await req.candidate.save();
 
     res.json({
@@ -577,8 +647,6 @@ router.post('/candidate/generate-cv-questions', protectCandidate, async (req, re
   try {
     const closed = await rejectIfInterviewClosed(req, res);
     if (closed) return;
-    const closed = await rejectIfInterviewClosed(req, res);
-    if (closed) return;
     if (req.candidate.status === 'pending') {
       return res.status(400).json({ message: 'Upload your CV before generating questions' });
     }
@@ -603,11 +671,17 @@ router.post('/candidate/generate-cv-questions', protectCandidate, async (req, re
     };
 
     await AIQuestion.deleteMany({ interviewId: interview._id });
+    req.candidate.currentQuestionIndex = 0;
+    req.candidate.plannedQuestionTotal = 0;
+    req.candidate.followUpQueue = [];
     const lang = req.candidate.language || interview.language || 'en';
+    const customCount = await getCustomQuestionCount(interview._id);
+    const totalQuestionCount = safeAiQuestionCount(interview.aiQuestionCount);
+    const aiToGenerate = Math.max(0, totalQuestionCount - customCount);
     const generated = await generateCvQuestions(
       cvData,
       interview.jobRole,
-      5,
+      aiToGenerate,
       lang,
       interview.round || 'technical'
     );
@@ -624,6 +698,7 @@ router.post('/candidate/generate-cv-questions', protectCandidate, async (req, re
       saved.push(q);
     }
 
+    await req.candidate.save();
     res.json({ questions: saved, count: saved.length });
   } catch (err) {
     res.status(500).json({ message: err.message });
@@ -701,12 +776,22 @@ router.get('/analytics/pin-admin', protect, authorize('admin'), async (_req, res
 router.get('/candidate/session', protectCandidate, async (req, res) => {
   const closed = await rejectIfInterviewClosed(req, res);
   if (closed) return;
+  await clearLegacyFollowUps(req.candidate);
   const interview = await Interview.findById(req.candidate.interviewId);
   const aiCount = await AIQuestion.countDocuments({ interviewId: interview._id });
-  const queue = await buildQuestionQueue(interview._id, req.candidate);
-  const current = getCurrentQuestion(queue, req.candidate.currentQuestionIndex);
-  const total = queue.length;
+  const queue = await buildQuestionQueue(interview._id);
+  const configuredTotal = safeAiQuestionCount(interview.aiQuestionCount);
+  if (req.candidate.status === 'interview_started') {
+    await ensurePlannedTotal(req.candidate, queue, configuredTotal);
+  }
+  const progress = buildProgress(req.candidate, queue, configuredTotal);
+  const current = getQuestionWithinPlan(queue, req.candidate, configuredTotal);
   const cvRequired = !req.candidate.cvFileUrl || req.candidate.status === 'pending';
+  const interviewComplete =
+    req.candidate.status === 'completed' ||
+    (req.candidate.status === 'interview_started' &&
+      req.candidate.plannedQuestionTotal > 0 &&
+      req.candidate.currentQuestionIndex >= progress.total);
 
   res.json({
     interview: formatInterview(interview),
@@ -714,19 +799,16 @@ router.get('/candidate/session', protectCandidate, async (req, res) => {
     cvRequired,
     aiQuestionsReady: aiCount > 0,
     aiQuestionCount: aiCount,
-    currentQuestion: cvRequired ? null : current,
+    currentQuestion: cvRequired || interviewComplete ? null : current,
     interviewerComment: req.candidate.lastInterviewerComment || '',
     liveMetrics: req.candidate.liveMetrics,
     metricsHistory: req.candidate.metricsHistory || [],
     cheatWarnings: req.candidate.cheatEvents?.length || 0,
     includeCoding: interview.includeCoding,
     codingDone: req.candidate.codingSubmitted,
-    progress: {
-      current: req.candidate.currentQuestionIndex + 1,
-      total,
-      percent: total ? Math.round((req.candidate.currentQuestionIndex / total) * 100) : 0,
-    },
+    progress,
     completed: req.candidate.status === 'completed',
+    interviewComplete,
   });
 });
 
@@ -747,18 +829,24 @@ router.post('/candidate/start-interview', protectCandidate, async (req, res) => 
   const interview = await Interview.findById(req.candidate.interviewId);
   req.candidate.status = 'interview_started';
   req.candidate.currentQuestionIndex = 0;
+  req.candidate.followUpQueue = [];
   req.candidate.startedAt = new Date();
   req.candidate.language = req.candidate.language || interview.language;
   req.candidate.personality = req.candidate.personality || interview.personality;
   req.candidate.round = req.candidate.round || interview.round;
   req.candidate.difficulty = interview.difficulty || 'medium';
+  const queue = await buildQuestionQueue(req.candidate.interviewId);
+  req.candidate.plannedQuestionTotal = computePlannedTotal(
+    queue,
+    safeAiQuestionCount(interview.aiQuestionCount)
+  );
   await req.candidate.save();
 
-  const queue = await buildQuestionQueue(req.candidate.interviewId, req.candidate);
+  const planned = getPlannedQueue(req.candidate, queue, safeAiQuestionCount(interview.aiQuestionCount));
   res.json({
     started: true,
-    currentQuestion: getCurrentQuestion(queue, 0),
-    totalQuestions: queue.length,
+    currentQuestion: getCurrentQuestion(planned, 0),
+    totalQuestions: req.candidate.plannedQuestionTotal,
   });
 });
 
@@ -777,9 +865,23 @@ router.post('/candidate/submit-answer', protectCandidate, async (req, res) => {
     }
 
     const interview = await Interview.findById(req.candidate.interviewId);
-    const queue = await buildQuestionQueue(interview._id, req.candidate);
-    const current = getCurrentQuestion(queue, req.candidate.currentQuestionIndex);
-    if (!current) return res.status(400).json({ message: 'No active question' });
+    await clearLegacyFollowUps(req.candidate);
+    const queue = await buildQuestionQueue(interview._id);
+    const total = await ensurePlannedTotal(
+      req.candidate,
+      queue,
+      safeAiQuestionCount(interview.aiQuestionCount)
+    );
+
+    if (req.candidate.currentQuestionIndex >= total) {
+      return res.json(finalizePayload(req, interview));
+    }
+
+    const configuredTotal = safeAiQuestionCount(interview.aiQuestionCount);
+    const current = getQuestionWithinPlan(queue, req.candidate, configuredTotal);
+    if (!current) {
+      return res.json(finalizePayload(req, interview));
+    }
 
     const metrics = req.body.metrics || {};
     let evaluation;
@@ -799,8 +901,8 @@ router.post('/candidate/submit-answer', protectCandidate, async (req, res) => {
         score: words < 15 ? 4 : words < 40 ? 6 : 8,
         feedback: 'Answer recorded.',
         conversationalComment: 'Thank you. Let us continue.',
-        needsFollowUp: words < 25,
-        followUpQuestion: words < 25 ? 'Can you elaborate with a specific example?' : '',
+        needsFollowUp: false,
+        followUpQuestion: '',
         nextDifficulty: req.candidate.difficulty || 'medium',
       };
     }
@@ -837,29 +939,15 @@ router.post('/candidate/submit-answer', protectCandidate, async (req, res) => {
       metrics,
     });
 
-    if (evaluation.needsFollowUp && evaluation.followUpQuestion) {
-      req.candidate.followUpQueue = req.candidate.followUpQueue || [];
-      req.candidate.followUpQueue.push({
-        questionKey: `followup-${new mongoose.Types.ObjectId()}`,
-        questionText: evaluation.followUpQuestion,
-        parentQuestionId: String(current.id),
-        questionType: 'followup',
-      });
-    }
-
     if (req.candidate.metricsHistory?.length > 30) {
       req.candidate.metricsHistory = req.candidate.metricsHistory.slice(-30);
     }
 
     req.candidate.currentQuestionIndex += 1;
-    sanitizeFollowUpQueue(req.candidate);
-    const updatedQueue = await buildQuestionQueue(interview._id, req.candidate);
-    const nextQ = getCurrentQuestion(updatedQueue, req.candidate.currentQuestionIndex);
-    const done = !nextQ;
-    const total = updatedQueue.length;
-    const progressPercent = total
-      ? Math.min(100, Math.round((req.candidate.currentQuestionIndex / total) * 100))
-      : 0;
+    req.candidate.followUpQueue = [];
+
+    const done = req.candidate.currentQuestionIndex >= total;
+    const progress = buildProgress(req.candidate, queue, configuredTotal);
 
     try {
       await req.candidate.save();
@@ -871,14 +959,14 @@ router.post('/candidate/submit-answer', protectCandidate, async (req, res) => {
     }
 
     if (done) {
-      return res.json({
-        completed: false,
-        finalize: true,
-        evaluation,
-        interviewerComment: req.candidate.lastInterviewerComment,
-        includeCoding: interview.includeCoding && !req.candidate.codingSubmitted,
-      });
+      return res.json(finalizePayload(req, interview, evaluation));
     }
+
+    const nextQ = getQuestionWithinPlan(queue, req.candidate, configuredTotal);
+    if (!nextQ) {
+      return res.json(finalizePayload(req, interview, evaluation));
+    }
+
     res.json({
       completed: false,
       evaluation,
@@ -886,11 +974,7 @@ router.post('/candidate/submit-answer', protectCandidate, async (req, res) => {
       nextQuestion: nextQ,
       liveMetrics: req.candidate.liveMetrics,
       metricsHistory: req.candidate.metricsHistory || [],
-      progress: {
-        current: req.candidate.currentQuestionIndex + 1,
-        total,
-        percent: progressPercent,
-      },
+      progress,
     });
   } catch (err) {
     return sendRouteError(res, err);
@@ -928,6 +1012,8 @@ router.post('/candidate/complete-interview', protectCandidate, async (req, res) 
         communicationScore: report.communicationScore,
         confidenceScore: report.confidenceScore,
         speakingScore: report.speakingScore,
+        codingScore: req.candidate.codingScore,
+        codingFeedback: req.candidate.codingFeedback,
         strengths: report.strengths || [],
         weaknesses: report.weaknesses || [],
         recommendation: report.recommendation,
@@ -1139,6 +1225,7 @@ function formatInterview(iv) {
     round: iv.round,
     includeCoding: iv.includeCoding,
     difficulty: iv.difficulty,
+    aiQuestionCount: iv.aiQuestionCount,
     createdAt: iv.createdAt,
   };
 }
@@ -1157,6 +1244,7 @@ function formatCandidate(c) {
     cvSummary: c.cvSummary,
     extractedSkills: c.extractedSkills,
     currentQuestionIndex: c.currentQuestionIndex,
+    plannedQuestionTotal: c.plannedQuestionTotal,
     liveMetrics: c.liveMetrics,
     metricsHistory: c.metricsHistory,
     cheatEvents: c.cheatEvents,
