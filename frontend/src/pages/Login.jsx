@@ -17,7 +17,7 @@ export default function Login() {
     api
       .get('/health')
       .then(() => setServerOk(true))
-      .catch(() => setServerOk(false));
+      .catch((err) => setServerOk(err.response?.status === 429 ? true : false));
   }, []);
 
   const handleSubmit = async (e) => {
@@ -28,7 +28,7 @@ export default function Login() {
       const user = await login(email, password);
       navigate(user.role === 'admin' ? '/admin' : '/dashboard');
     } catch (err) {
-      setError(err.message || err.response?.data?.message || 'Login failed');
+      setError(err.response?.data?.message || err.message || 'Login failed');
     } finally {
       setLoading(false);
     }

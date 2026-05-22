@@ -32,6 +32,7 @@ const interviewSchema = new mongoose.Schema(
     },
     includeCoding: { type: Boolean, default: false },
     difficulty: { type: String, enum: ['easy', 'medium', 'hard'], default: 'medium' },
+    aiQuestionCount: { type: Number, default: 5, min: 1, max: 20 },
     createdBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
   },
   { timestamps: true }

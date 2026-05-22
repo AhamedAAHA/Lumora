@@ -9,6 +9,8 @@ const interviewResultSchema = new mongoose.Schema(
     communicationScore: { type: Number, default: 0 },
     confidenceScore: { type: Number, default: 0 },
     speakingScore: { type: Number, default: 0 },
+    codingScore: { type: Number },
+    codingFeedback: { type: String },
     careerCoach: { type: String },
     learningRoadmap: [String],
     suggestedCareerPath: { type: String },

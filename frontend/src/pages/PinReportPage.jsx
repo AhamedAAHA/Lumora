@@ -12,7 +12,10 @@ export default function PinReportPage() {
   useEffect(() => {
     api
       .get(`/interviews/${interviewId}/report`)
-      .then((res) => setData(res.data))
+      .then((res) => {
+        setData(res.data);
+        setError('');
+      })
       .catch((err) => setError(err.response?.data?.message || err.message));
   }, [interviewId]);
 
@@ -25,11 +28,17 @@ export default function PinReportPage() {
       <Link to="/admin" className="mb-5 inline-flex items-center gap-2 text-sm text-white/55 hover:text-white">
         <ArrowLeft className="h-4 w-4" /> Back to admin
       </Link>
-      {error && (
+      {error && !data && (
         <p className="rounded-xl border border-red-500/30 bg-red-500/10 p-4 text-sm text-red-200">{error}</p>
       )}
-      {r && (
+      {data?.partial && !r && (
+        <p className="mb-4 rounded-xl border border-amber-500/30 bg-amber-500/10 p-4 text-sm text-amber-100">
+          Interview in progress — showing saved answers so far. Full scores appear after the candidate completes.
+        </p>
+      )}
+      {(r || answers.length > 0) && (
         <div className="space-y-5">
+          {r && (
           <div className="os-card p-6">
             <p className="text-xs uppercase tracking-[0.2em] text-white/35">Overall</p>
             <p className="mt-2 text-5xl font-semibold">{r.overallScore ?? 0}%</p>
@@ -40,16 +49,27 @@ export default function PinReportPage() {
               </p>
             )}
           </div>
+          )}
+          {r && (
           <div className="grid gap-4 md:grid-cols-3">
             <div className="os-card p-4">Technical: {r.technicalScore}%</div>
             <div className="os-card p-4">Communication: {r.communicationScore}%</div>
             <div className="os-card p-4">Confidence: {r.confidenceScore}%</div>
           </div>
+          )}
+
+          {r?.codingScore != null && (
+            <div className="os-card p-5">
+              <h3 className="font-semibold text-white">Coding review</h3>
+              <p className="mt-2 text-sm text-white/65">Score: {r.codingScore}/100</p>
+              {r.codingFeedback && <p className="mt-2 text-sm text-white/60">{r.codingFeedback}</p>}
+            </div>
+          )}
 
           <div className="os-card p-5">
             <h3 className="font-semibold text-white">Candidate answers ({answers.length})</h3>
             <p className="mt-1 text-sm text-white/45">
-              Stored for admin review — includes introduction, AI, and follow-up questions.
+              Stored for admin review with AI score and feedback for each submitted answer.
             </p>
             {answers.length === 0 ? (
               <p className="mt-4 text-sm text-white/40">No answers recorded yet.</p>
@@ -80,7 +100,7 @@ export default function PinReportPage() {
             )}
           </div>
 
-          {r.careerCoach && (
+          {r?.careerCoach && (
             <div className="os-card p-5">
               <h3 className="font-semibold">Career Coach</h3>
               <p className="mt-2 text-sm text-white/65">{r.careerCoach}</p>

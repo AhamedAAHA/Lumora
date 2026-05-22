@@ -12,7 +12,6 @@ export default function CandidateDashboard() {
   const navigate = useNavigate();
   const [assigned, setAssigned] = useState([]);
   const [history, setHistory] = useState([]);
-  const [analytics, setAnalytics] = useState(null);
   const [message, setMessage] = useState('');
   const [loadError, setLoadError] = useState('');
   const [uploading, setUploading] = useState('');
@@ -22,15 +21,13 @@ export default function CandidateDashboard() {
   const load = async () => {
     try {
       setLoadError('');
-      const [assignedRes, historyRes, analyticsRes, liveRes] = await Promise.all([
+      const [assignedRes, historyRes, liveRes] = await Promise.all([
         api.get('/interviews/assigned'),
         api.get('/interviews/history'),
-        api.get('/analytics/candidate'),
         api.get('/analytics/live'),
       ]);
       setAssigned(assignedRes.data);
       setHistory(historyRes.data);
-      setAnalytics(analyticsRes.data);
       setLiveDash(liveRes.data);
     } catch (err) {
       setLoadError(err.response?.data?.message || err.message);
@@ -42,8 +39,11 @@ export default function CandidateDashboard() {
     try {
       const { data } = await api.get('/analytics/live');
       setLiveDash(data);
-    } catch (_) {}
-    setDashLoading(false);
+    } catch {
+      // Live dashboard refresh is best-effort.
+    } finally {
+      setDashLoading(false);
+    }
   };
 
   useEffect(() => {

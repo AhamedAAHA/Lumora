@@ -197,9 +197,9 @@ Question index: ${session.questionIndex}
 ${resumeCtx ? `${resumeCtx} Next questions should stay relevant to this resume when not using a follow-up.` : 'This was the introduction question — keep the next question resume-based if index advances.'}
 
 Evaluate answer 0-100. Decide next difficulty: "easy"|"medium"|"hard" (raise if score>75, lower if <50).
-If answer incomplete, set needsFollowUp true and followUpQuestion.
+Do not create follow-up questions. Keep needsFollowUp false and followUpQuestion empty.
 Return JSON only:
-{"score":0,"nextDifficulty":"medium","needsFollowUp":false,"followUpQuestion":"","nextQuestion":"","conversationalComment":"Interesting answer. Can you elaborate..."}`;
+{"score":0,"nextDifficulty":"medium","needsFollowUp":false,"followUpQuestion":"","nextQuestion":"","conversationalComment":"Thank you. Let us continue."}`;
 
   const ai = await chat(personality, prompt, session.language);
 
@@ -221,12 +221,10 @@ Return JSON only:
     if (result.score > 75) result.nextDifficulty = 'hard';
     else if (result.score < 50) result.nextDifficulty = 'easy';
     result.nextQuestion = getFallbackNext(session);
-    if (answer.split(' ').length < 20) {
-      result.needsFollowUp = true;
-      result.followUpQuestion = 'Can you provide more specific details or examples?';
-    }
   }
 
+  result.needsFollowUp = false;
+  result.followUpQuestion = '';
   return result;
 }
 
@@ -297,4 +295,3 @@ module.exports = {
   evaluateCode,
   chat,
 };
-

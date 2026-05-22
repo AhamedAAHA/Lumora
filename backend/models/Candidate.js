@@ -26,6 +26,7 @@ const candidateSchema = new mongoose.Schema(
       default: 'pending',
     },
     currentQuestionIndex: { type: Number, default: 0 },
+    plannedQuestionTotal: { type: Number, default: 0 },
     lastInterviewerComment: { type: String, default: '' },
     startedAt: { type: Date },
     liveMetrics: {

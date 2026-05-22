@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import AuthLayout from '../../layouts/AuthLayout';
-import pinApi, { getPinToken, getPinStatus, routeByPinStatus, setPinAuth } from '../../lib/pinApi';
+import pinApi, { getPinToken, routeByPinStatus, setPinAuth } from '../../lib/pinApi';
 
 export default function PinLogin() {
   const navigate = useNavigate();

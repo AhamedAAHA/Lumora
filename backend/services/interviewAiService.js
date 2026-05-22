@@ -157,6 +157,7 @@ function normalizeDifficulty(value) {
 }
 
 async function generateCvQuestions(cvData, jobRole, count = 5, language = 'en', round = 'technical') {
+  if (count <= 0) return [];
   const ctx = JSON.stringify(cvData, null, 0).slice(0, 4000);
   const parsed = await chatJson(
     'You are a senior interviewer. Generate personalized questions referencing specific resume items.',
@@ -181,6 +182,7 @@ Example style: "I noticed you built a React project. Explain how state managemen
 function fallbackCvQuestions(cvData, jobRole, count) {
   const questions = [];
   (cvData.skills || []).slice(0, 2).forEach((skill) => {
+    if (questions.length >= count) return;
     questions.push({
       questionText: `I noticed ${skill} on your resume. How did you use it in a recent ${jobRole} project?`,
       basedOn: 'cv_skill',
@@ -220,12 +222,12 @@ Return JSON:
 {
   "score":0-10,
   "feedback":"constructive feedback in interview language",
-  "conversationalComment":"natural HR transition e.g. Interesting answer. Can you elaborate...",
+  "conversationalComment":"brief feedback transition only; do not ask another question",
   "needsFollowUp":false,
   "followUpQuestion":"",
   "nextDifficulty":"easy|medium|hard"
 }
-Raise nextDifficulty if score>=8, lower if score<5. needsFollowUp if vague or under 25 words.`,
+Raise nextDifficulty if score>=8, lower if score<5. Do not create follow-up questions; keep needsFollowUp false and followUpQuestion empty.`,
     language
   );
 
@@ -234,8 +236,8 @@ Raise nextDifficulty if score>=8, lower if score<5. needsFollowUp if vague or un
       score: Math.min(10, Math.max(0, Number(parsed.score) || 0)),
       feedback: parsed.feedback || 'Thank you for your answer.',
       conversationalComment: parsed.conversationalComment || '',
-      needsFollowUp: !!parsed.needsFollowUp,
-      followUpQuestion: parsed.followUpQuestion || '',
+      needsFollowUp: false,
+      followUpQuestion: '',
       nextDifficulty: ['easy', 'medium', 'hard'].includes(parsed.nextDifficulty)
         ? parsed.nextDifficulty
         : difficulty,
@@ -251,9 +253,9 @@ Raise nextDifficulty if score>=8, lower if score<5. needsFollowUp if vague or un
   return {
     score,
     feedback: score >= 7 ? 'Good depth in your response.' : 'Please provide more specific examples.',
-    conversationalComment: score >= 7 ? 'Interesting answer.' : 'Can you tell me more about that?',
-    needsFollowUp: wordCount < 25,
-    followUpQuestion: wordCount < 25 ? 'What design pattern or approach did you use in that project?' : '',
+    conversationalComment: score >= 7 ? 'Interesting answer.' : 'Thank you. Let us continue.',
+    needsFollowUp: false,
+    followUpQuestion: '',
     nextDifficulty,
   };
 }

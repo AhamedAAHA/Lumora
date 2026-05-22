@@ -87,7 +87,7 @@ export default defineConfig({
   plugins: [lumoraBackendPlugin(), react(), lumoraPublicPlugin()],
   server: {
     port: 5173,
-    strictPort: true,
+    strictPort: false,
     proxy: {
       '/api': proxyToBackend,
       '/audio': proxyToBackend,
@@ -96,7 +96,7 @@ export default defineConfig({
   },
   preview: {
     port: 5173,
-    strictPort: true,
+    strictPort: false,
     proxy: {
       '/api': proxyToBackend,
       '/audio': proxyToBackend,

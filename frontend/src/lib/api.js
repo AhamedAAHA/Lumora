@@ -29,6 +29,10 @@ api.interceptors.response.use(
       error.message =
         error.response.data?.message ||
         'Database offline. Start MongoDB, then restart the backend.';
+    } else if (error.response.status === 429) {
+      error.message =
+        error.response.data?.message ||
+        'Too many requests. Please wait a minute and try again.';
     }
     return Promise.reject(error);
   }

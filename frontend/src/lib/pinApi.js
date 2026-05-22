@@ -25,6 +25,10 @@ pinApi.interceptors.response.use(
       } else {
         error.message = 'Cannot reach server. Run: npm run dev';
       }
+    } else if (error.response.status === 429) {
+      error.message =
+        error.response.data?.message ||
+        'Too many requests. Restart the backend dev server and try again.';
     }
     return Promise.reject(error);
   }
