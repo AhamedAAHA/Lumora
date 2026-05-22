@@ -46,12 +46,12 @@ export default function Navbar() {
           ))}
         </ul>
 
-        <div className="hidden items-center gap-4 md:flex">
+        <div className="hidden items-center gap-3 md:flex">
           <Link to="/login" className="text-sm text-white/60 hover:text-white">
-            Sign in
+            Admin
           </Link>
-          <Link to="/register" className="btn-primary text-sm">
-            Start Free
+          <Link to="/pin" className="text-sm text-white/60 hover:text-white">
+            Candidate PIN
           </Link>
         </div>
 
@@ -79,10 +79,10 @@ export default function Navbar() {
           ))}
           <div className="mt-4 flex flex-col gap-2 border-t border-white/10 pt-4">
             <Link to="/login" className="btn-secondary text-center text-sm" onClick={() => setOpen(false)}>
-              Sign in
+              Admin Portal
             </Link>
-            <Link to="/register" className="btn-primary text-center text-sm" onClick={() => setOpen(false)}>
-              Start Free
+            <Link to="/pin" className="btn-secondary text-center text-sm" onClick={() => setOpen(false)}>
+              Candidate PIN
             </Link>
           </div>
         </div>

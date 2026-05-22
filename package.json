@@ -6,9 +6,12 @@
   "scripts": {
     "dev:frontend": "npm run dev --prefix frontend",
     "dev:backend": "npm run dev --prefix backend",
-    "dev": "concurrently \"npm run dev:backend\" \"npm run dev:frontend\"",
+    "dev": "npm run dev --prefix frontend",
+    "dev:all": "concurrently \"npm run dev:backend\" \"npm run dev:frontend\"",
     "install:all": "npm install --prefix frontend && npm install --prefix backend",
-    "build": "npm run build --prefix frontend"
+    "build": "npm run build --prefix frontend",
+    "seed:admin": "npm run seed:admin --prefix backend",
+    "seed:demo": "npm run seed:demo --prefix backend"
   },
   "devDependencies": {
     "concurrently": "^9.2.1"

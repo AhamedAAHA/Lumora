@@ -3,6 +3,7 @@ const fs = require('fs');
 const upload = require('../middleware/upload');
 const { protect } = require('../middleware/auth');
 const { parseResumePdf } = require('../services/resumeParser');
+const { extractCvData, normalizeCvExtracted } = require('../services/interviewAiService');
 const Resume = require('../models/Resume');
 
 const router = express.Router();
@@ -17,9 +18,21 @@ router.post('/parse', protect, (req, res, next) => {
 }, async (req, res) => {
   try {
     if (!req.file) {
-      return res.status(400).json({ message: 'PDF required' });
+      return res.status(400).json({ message: 'Resume file required (PDF, DOC, or DOCX)' });
     }
-    const data = await parseResumePdf(req.file.path);
+    const parsed = await parseResumePdf(req.file.path);
+    const rawText = parsed.rawText || '';
+    let data = normalizeCvExtracted(parsed);
+    if (process.env.OPENAI_API_KEY && rawText.length > 50) {
+      try {
+        const aiData = await extractCvData(rawText, 'general');
+        data = normalizeCvExtracted({ ...aiData, rawText });
+      } catch (_) {
+        data = normalizeCvExtracted({ ...parsed, rawText });
+      }
+    } else {
+      data = normalizeCvExtracted({ ...parsed, rawText });
+    }
     await Resume.create({
       candidateId: req.user._id,
       fileName: req.file.originalname,
@@ -29,7 +42,7 @@ router.post('/parse', protect, (req, res, next) => {
       experience: data.experience || [],
     });
     fs.unlink(req.file.path, () => {});
-    res.json(data);
+    res.json({ ...data, rawText });
   } catch (err) {
     if (req.file?.path) fs.unlink(req.file.path, () => {});
     const msg = err.message || 'Failed to parse PDF';

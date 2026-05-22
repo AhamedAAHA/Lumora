@@ -49,13 +49,19 @@ export default function Hero() {
             center for hiring — all in one glass workspace.
           </p>
           <div ref={ctasRef} className="mt-8 flex flex-wrap justify-center gap-4 opacity-100">
-            <Link to="/register" className="btn-primary inline-flex items-center gap-2">
-              Start Free
+            <Link to="/login" className="btn-primary inline-flex items-center gap-2">
+              Get Started
               <ArrowRight className="h-4 w-4" />
             </Link>
             <a href="#platform" className="btn-secondary">
               See platform
             </a>
+            <Link to="/login" className="btn-secondary">
+              Admin Portal
+            </Link>
+            <Link to="/pin" className="btn-secondary">
+              Candidate PIN
+            </Link>
           </div>
         </div>
 

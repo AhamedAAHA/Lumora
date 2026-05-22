@@ -13,7 +13,7 @@ router.post('/register', async (req, res) => {
     const name = String(req.body.name || '').trim();
     const email = String(req.body.email || '').trim().toLowerCase();
     const password = String(req.body.password || '');
-    const role = ['candidate', 'admin'].includes(req.body.role) ? req.body.role : 'candidate';
+    const role = 'candidate';
 
     if (!name || !email || password.length < 6) {
       return res.status(400).json({ message: 'Name, valid email, and 6+ character password are required' });

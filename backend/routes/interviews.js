@@ -6,10 +6,19 @@ const Notification = require('../models/Notification');
 const { protect, authorize } = require('../middleware/auth');
 const {
   generateFirstQuestion,
+  generateNextAiQuestion,
   evaluateAndRespond,
   generateCareerCoach,
   evaluateCode,
 } = require('../services/aiService');
+const {
+  hasResumeData,
+  sessionResumeUploaded,
+  ensureIntroQuestion,
+  defaultIntroQuestion,
+  normalizeCheatEvent,
+} = require('../utils/sessionResume');
+const { normalizeCvExtracted } = require('../services/interviewAiService');
 const { categorizeCandidate } = require('../services/recommendationEngine');
 
 const router = express.Router();
@@ -61,20 +70,26 @@ router.get('/assigned', protect, authorize('candidate'), async (req, res) => {
   })
     .sort({ createdAt: -1 })
     .select(
-      'language personality round includeCoding totalQuestions questionIndex currentQuestion status createdAt resumeData'
+      'language personality round includeCoding totalQuestions questionIndex currentQuestion introQuestion status createdAt resumeData resumeUploaded'
     );
 
   res.json(
-    sessions.map((session) => ({
-      ...formatSession(session),
-      createdAt: session.createdAt,
-      hasResume: Boolean(
-        session.resumeData?.skills?.length ||
-          session.resumeData?.education?.length ||
-          session.resumeData?.projects?.length ||
-          session.resumeData?.experience?.length
-      ),
-    }))
+    sessions.map((session) => {
+      const hasResume = sessionResumeUploaded(session);
+      const introQuestion =
+        String(session.introQuestion || session.currentQuestion || '').trim() ||
+        defaultIntroQuestion(session);
+      return {
+        ...formatSession(session),
+        createdAt: session.createdAt,
+        introQuestion,
+        hasResume,
+        canAttend: hasResume,
+        previewQuestion: hasResume
+          ? introQuestion
+          : 'Upload your resume (PDF) to unlock this interview.',
+      };
+    })
   );
 });
 
@@ -88,13 +103,27 @@ router.patch('/:id/resume', protect, authorize('candidate'), async (req, res) =>
       return res.status(400).json({ message: 'Resume can only be added before the interview starts' });
     }
 
-    session.resumeData = req.body.resumeData || {};
-    const first = await generateFirstQuestion(session);
-    session.currentQuestion = first.question;
-    session.lastComment = first.comment || '';
+    const resumeData = normalizeCvExtracted(req.body.resumeData || {});
+    if (!hasResumeData(resumeData)) {
+      return res.status(400).json({
+        message:
+          'Could not read enough information from this PDF. Try another file or re-export as PDF.',
+      });
+    }
+
+    session.resumeData = resumeData;
+    session.resumeUploaded = true;
+    ensureIntroQuestion(session);
+    if (session.questionIndex === 0) {
+      session.currentQuestion = session.introQuestion;
+    }
     await session.save();
 
-    res.json(formatSession(session));
+    res.json({
+      ...formatSession(session),
+      hasResume: true,
+      introQuestion: session.introQuestion,
+    });
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
@@ -108,7 +137,20 @@ router.get('/:id', protect, authorize('candidate'), async (req, res) => {
   if (session.status === 'draft' || session.status === 'archived') {
     return res.status(404).json({ message: 'Session not found' });
   }
-  res.json(formatSession(session));
+  const hasResume = sessionResumeUploaded(session);
+  const cvRequired = !hasResume;
+  ensureIntroQuestion(session);
+  if (hasResume && session.questionIndex === 0) {
+    session.currentQuestion = session.introQuestion;
+  }
+  res.json({
+    ...formatSession(session),
+    hasResume,
+    cvRequired,
+    introQuestion: session.introQuestion,
+    phase: session.questionIndex === 0 ? 'introduction' : 'ai_resume',
+    currentQuestion: cvRequired ? null : session.currentQuestion,
+  });
 });
 
 router.post('/:id/cheat', protect, async (req, res) => {
@@ -116,7 +158,8 @@ router.post('/:id/cheat', protect, async (req, res) => {
   if (!session || session.candidateId.toString() !== req.user._id.toString()) {
     return res.status(404).json({ message: 'Not found' });
   }
-  session.cheatEvents.push(req.body);
+  const event = normalizeCheatEvent(req.body);
+  if (event) session.cheatEvents.push(event);
   await session.save();
   res.json({ ok: true });
 });
@@ -132,6 +175,16 @@ router.post('/:id/answer', protect, authorize('candidate'), async (req, res) => 
     }
     if (session.status !== 'active') {
       return res.status(400).json({ message: 'Interview is not available yet' });
+    }
+    if (!sessionResumeUploaded(session)) {
+      return res.status(400).json({
+        message: 'Upload your resume (PDF) on the dashboard before attending this interview',
+      });
+    }
+
+    ensureIntroQuestion(session);
+    if (session.questionIndex === 0) {
+      session.currentQuestion = session.introQuestion;
     }
 
     const { answer, metrics, cheatEvents } = req.body;
@@ -153,49 +206,69 @@ router.post('/:id/answer', protect, authorize('candidate'), async (req, res) => 
     });
 
     if (cheatEvents?.length) {
-      session.cheatEvents.push(...cheatEvents);
+      cheatEvents
+        .map(normalizeCheatEvent)
+        .filter(Boolean)
+        .forEach((event) => session.cheatEvents.push(event));
     }
 
     session.difficulty = evaluation.nextDifficulty || session.difficulty;
     session.lastComment = evaluation.conversationalComment;
 
-    let nextQ = evaluation.needsFollowUp
-      ? evaluation.followUpQuestion
-      : evaluation.nextQuestion;
+    let nextQ;
+    if (session.questionIndex === 0) {
+      const aiNext = await generateNextAiQuestion(session);
+      nextQ = aiNext.question;
+      session.lastComment = evaluation.conversationalComment || aiNext.comment || '';
+    } else if (evaluation.needsFollowUp && evaluation.followUpQuestion) {
+      nextQ = evaluation.followUpQuestion;
+    } else {
+      const aiNext = await generateNextAiQuestion(session);
+      nextQ = aiNext.question;
+      if (!evaluation.conversationalComment && aiNext.comment) {
+        session.lastComment = aiNext.comment;
+      }
+    }
 
-    if (!nextQ) nextQ = evaluation.followUpQuestion;
+    if (!nextQ) {
+      const aiNext = await generateNextAiQuestion(session);
+      nextQ = aiNext.question;
+    }
 
     session.questionIndex += 1;
 
     const completed = session.questionIndex >= session.totalQuestions;
 
     if (completed) {
-      const avgScore =
-        session.answers.reduce((s, a) => s + (a.aiScore || 0), 0) / session.answers.length;
+      const n = Math.max(session.answers.length, 1);
+      const avgAi10 =
+        session.answers.reduce((s, a) => s + (a.aiScore || 0), 0) / n;
       const avgConf =
-        session.answers.reduce((s, a) => s + (a.metrics?.confidence || 0), 0) /
-        session.answers.length;
+        session.answers.reduce((s, a) => s + (a.metrics?.confidence || 0), 0) / n;
       const avgComm =
-        session.answers.reduce((s, a) => s + (a.metrics?.communication || 0), 0) /
-        session.answers.length;
+        session.answers.reduce((s, a) => s + (a.metrics?.communication || 0), 0) / n;
+      const technicalPct = Math.round(avgAi10 * 10);
+      const overallScore = Math.round(
+        technicalPct * 0.5 + avgConf * 0.25 + avgComm * 0.25
+      );
 
-      session.overallScore = Math.round(avgScore);
-      session.recommendation = categorizeCandidate(avgScore, avgConf, avgScore);
+      session.overallScore = overallScore;
+      session.recommendation = categorizeCandidate(overallScore, avgConf, technicalPct);
       session.status = 'completed';
 
       const coach = await generateCareerCoach(
         session,
-        { technical: avgScore, communication: avgComm, confidence: avgConf },
+        { technical: technicalPct, communication: avgComm, confidence: avgConf },
         session.language
       );
 
       const report = await Report.create({
         sessionId: session._id,
         candidateId: req.user._id,
-        technicalScore: Math.round(avgScore),
+        technicalScore: technicalPct,
         communicationScore: Math.round(avgComm),
         confidenceScore: Math.round(avgConf),
-        overallScore: Math.round(avgScore),
+        overallScore,
         recommendation: session.recommendation,
         summary: `Completed ${session.round} interview with ${session.personality.replace(/_/g, ' ')}.`,
         strengths: coach.strengths,
@@ -272,6 +345,8 @@ function formatSession(s) {
     questionIndex: s.questionIndex,
     totalQuestions: s.totalQuestions,
     currentQuestion: s.currentQuestion,
+    introQuestion: s.introQuestion,
+    resumeUploaded: !!s.resumeUploaded,
     lastComment: s.lastComment,
     status: s.status,
     recommendation: s.recommendation,

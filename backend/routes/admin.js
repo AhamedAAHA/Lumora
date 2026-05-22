@@ -8,8 +8,18 @@ const Report = require('../models/Report');
 const Resume = require('../models/Resume');
 const Setting = require('../models/Setting');
 const User = require('../models/User');
+const Interview = require('../models/Interview');
+const InterviewResult = require('../models/InterviewResult');
+const Candidate = require('../models/Candidate');
 const { protect, authorize } = require('../middleware/auth');
 const { generateFirstQuestion } = require('../services/aiService');
+const { normalizeScore } = require('../services/unifiedAnalytics');
+const {
+  hasResumeData,
+  defaultIntroQuestion,
+  ensureIntroQuestion,
+} = require('../utils/sessionResume');
+const { mapPinRecommendation } = require('../utils/validateInterview');
 
 const router = express.Router();
 
@@ -241,7 +251,24 @@ router.get('/interviews', async (_req, res) => {
     .sort({ createdAt: -1 })
     .select('candidateId language personality round includeCoding questionIndex totalQuestions currentQuestion status overallScore recommendation reportId createdAt');
 
-  res.json(sessions.map(formatAdminSession));
+  const reportIds = sessions.map((s) => s.reportId).filter(Boolean);
+  const reports = reportIds.length
+    ? await Report.find({ _id: { $in: reportIds } }).select('overallScore recommendation').lean()
+    : [];
+  const reportMap = new Map(reports.map((r) => [String(r._id), r]));
+
+  res.json(
+    sessions.map((session) => {
+      const formatted = formatAdminSession(session);
+      const report = session.reportId ? reportMap.get(String(session.reportId)) : null;
+      const raw = session.overallScore ?? report?.overallScore;
+      formatted.overallScore = normalizeScore(raw);
+      if (!formatted.recommendation && report?.recommendation) {
+        formatted.recommendation = report.recommendation;
+      }
+      return formatted;
+    })
+  );
 });
 
 router.post('/interviews', async (req, res) => {
@@ -261,6 +288,9 @@ router.post('/interviews', async (req, res) => {
     const candidate = await User.findOne({ _id: candidateId, role: 'candidate' });
     if (!candidate) return res.status(400).json({ message: 'Select a valid candidate' });
 
+    const intro =
+      String(currentQuestion || '').trim() || defaultIntroQuestion({ round, personality });
+
     const session = await InterviewSession.create({
       candidateId,
       jobRoleId: jobRoleId || undefined,
@@ -269,19 +299,16 @@ router.post('/interviews', async (req, res) => {
       round,
       includeCoding,
       totalQuestions,
-      currentQuestion,
+      introQuestion: intro,
+      currentQuestion: intro,
       status: publish ? 'active' : 'draft',
     });
-
-    if (publish) {
-      await publishSession(session);
-    }
 
     if (currentQuestion) {
       const question = await Question.create({
         jobRoleId: jobRoleId || undefined,
         interviewId: session._id,
-        text: currentQuestion,
+        text: intro,
         round,
         difficulty: 'medium',
         source: 'manual',
@@ -289,6 +316,10 @@ router.post('/interviews', async (req, res) => {
       });
       session.manualQuestions.addToSet(question._id);
       await session.save();
+    }
+
+    if (publish) {
+      await publishSession(session);
     }
 
     const populated = await InterviewSession.findById(session._id).populate('candidateId', 'name email');
@@ -306,9 +337,22 @@ router.patch('/interviews/:id', async (req, res) => {
       return res.status(400).json({ message: 'Completed interviews cannot be changed' });
     }
 
-    ['language', 'personality', 'round', 'includeCoding', 'totalQuestions', 'status', 'currentQuestion', 'jobRoleId'].forEach((field) => {
+    ['language', 'personality', 'round', 'totalQuestions', 'status', 'jobRoleId'].forEach((field) => {
       if (req.body[field] !== undefined) session[field] = req.body[field];
     });
+    if (req.body.currentQuestion !== undefined) {
+      const intro = String(req.body.currentQuestion || '').trim();
+      session.introQuestion = intro || defaultIntroQuestion(session);
+      if (session.questionIndex === 0) {
+        session.currentQuestion = session.introQuestion;
+      }
+    }
+    if (req.body.includeCoding !== undefined) {
+      session.includeCoding = req.body.includeCoding === true
+        || req.body.includeCoding === 'true'
+        || req.body.includeCoding === 1
+        || req.body.includeCoding === '1';
+    }
 
     if (req.body.publish || session.status === 'active') {
       session.status = 'active';
@@ -398,45 +442,153 @@ router.get('/reports', async (_req, res) => {
     .populate('candidateId', 'name email')
     .populate('sessionId', 'round personality status')
     .sort({ createdAt: -1 });
-  res.json(reports.map(formatAdminReport));
+  const legacy = reports.map(formatAdminReport);
+
+  const pinResults = await InterviewResult.find().sort({ createdAt: -1 }).limit(100);
+  const pinReports = await Promise.all(
+    pinResults.map(async (r) => {
+      const cand = await Candidate.findById(r.candidateId);
+      const iv = await Interview.findById(r.interviewId);
+      return {
+        id: String(r._id),
+        pinInterviewId: String(r.interviewId),
+        source: 'pin',
+        candidate: {
+          name: cand?.name || iv?.candidateName || 'Candidate',
+          email: cand?.email || iv?.candidateEmail,
+        },
+        session: { round: r.round || iv?.round || 'technical' },
+        overallScore: normalizeScore(r.overallScore),
+        technicalScore: r.technicalScore,
+        communicationScore: r.communicationScore,
+        confidenceScore: r.confidenceScore,
+        recommendation: String(r.recommendation || 'needs_improvement')
+          .toLowerCase()
+          .replace(/\s+/g, '_'),
+        summary: r.finalFeedback,
+        strengths: r.strengths || [],
+        weaknesses: r.weaknesses || [],
+        createdAt: r.createdAt,
+      };
+    })
+  );
+
+  res.json([...legacy, ...pinReports]);
+});
+
+router.patch('/pin-results/:id', async (req, res) => {
+  try {
+    const result = await InterviewResult.findById(req.params.id);
+    if (!result) return res.status(404).json({ message: 'PIN report not found' });
+
+    if (req.body.recommendation !== undefined) {
+      result.recommendation = mapPinRecommendation(req.body.recommendation);
+    }
+    if (req.body.overallScore !== undefined) {
+      result.overallScore = normalizeScore(req.body.overallScore);
+    }
+    if (req.body.finalFeedback !== undefined) {
+      result.finalFeedback = String(req.body.finalFeedback);
+    }
+    await result.save();
+
+    const cand = await Candidate.findById(result.candidateId);
+    const iv = await Interview.findById(result.interviewId);
+    res.json({
+      id: String(result._id),
+      pinInterviewId: String(result.interviewId),
+      source: 'pin',
+      candidate: {
+        name: cand?.name || iv?.candidateName,
+        email: cand?.email || iv?.candidateEmail,
+      },
+      session: { round: result.round || iv?.round || 'technical' },
+      overallScore: normalizeScore(result.overallScore),
+      recommendation: String(result.recommendation || 'needs_improvement')
+        .toLowerCase()
+        .replace(/\s+/g, '_'),
+      summary: result.finalFeedback,
+      createdAt: result.createdAt,
+    });
+  } catch (err) {
+    res.status(400).json({ message: err.message });
+  }
+});
+
+router.delete('/pin-results/:id', async (req, res) => {
+  const result = await InterviewResult.findById(req.params.id);
+  if (!result) return res.status(404).json({ message: 'PIN report not found' });
+  await result.deleteOne();
+  res.json({ ok: true });
 });
 
 router.patch('/reports/:id', async (req, res) => {
-  const allowed = [
-    'technicalScore',
-    'communicationScore',
-    'confidenceScore',
-    'overallScore',
-    'recommendation',
-    'summary',
-    'strengths',
-    'weaknesses',
-    'careerCoach',
-    'learningRoadmap',
-    'suggestedCareerPath',
-    'aiComments',
-  ];
-  const report = await Report.findById(req.params.id);
-  if (!report) return res.status(404).json({ message: 'Report not found' });
-  allowed.forEach((field) => {
-    if (req.body[field] !== undefined) report[field] = req.body[field];
-  });
-  await report.save();
+  try {
+    const pinResult = await InterviewResult.findById(req.params.id);
+    if (pinResult) {
+      if (req.body.recommendation !== undefined) {
+        pinResult.recommendation = mapPinRecommendation(req.body.recommendation);
+      }
+      await pinResult.save();
+      const cand = await Candidate.findById(pinResult.candidateId);
+      const iv = await Interview.findById(pinResult.interviewId);
+      return res.json({
+        id: String(pinResult._id),
+        pinInterviewId: String(pinResult.interviewId),
+        source: 'pin',
+        candidate: { name: cand?.name, email: cand?.email },
+        session: { round: pinResult.round || iv?.round },
+        overallScore: normalizeScore(pinResult.overallScore),
+        recommendation: String(pinResult.recommendation).toLowerCase().replace(/\s+/g, '_'),
+        summary: pinResult.finalFeedback,
+        createdAt: pinResult.createdAt,
+      });
+    }
 
-  if (report.sessionId) {
-    await InterviewSession.findByIdAndUpdate(report.sessionId, {
-      overallScore: report.overallScore,
-      recommendation: report.recommendation,
+    const allowed = [
+      'technicalScore',
+      'communicationScore',
+      'confidenceScore',
+      'overallScore',
+      'recommendation',
+      'summary',
+      'strengths',
+      'weaknesses',
+      'careerCoach',
+      'learningRoadmap',
+      'suggestedCareerPath',
+      'aiComments',
+    ];
+    const report = await Report.findById(req.params.id);
+    if (!report) return res.status(404).json({ message: 'Report not found' });
+    allowed.forEach((field) => {
+      if (req.body[field] !== undefined) report[field] = req.body[field];
     });
-  }
+    await report.save();
 
-  const populated = await Report.findById(report._id)
-    .populate('candidateId', 'name email')
-    .populate('sessionId', 'round personality status');
-  res.json(formatAdminReport(populated));
+    if (report.sessionId) {
+      await InterviewSession.findByIdAndUpdate(report.sessionId, {
+        overallScore: normalizeScore(report.overallScore),
+        recommendation: report.recommendation,
+      });
+    }
+
+    const populated = await Report.findById(report._id)
+      .populate('candidateId', 'name email')
+      .populate('sessionId', 'round personality status');
+    res.json(formatAdminReport(populated));
+  } catch (err) {
+    res.status(400).json({ message: err.message });
+  }
 });
 
 router.delete('/reports/:id', async (req, res) => {
+  const pinResult = await InterviewResult.findById(req.params.id);
+  if (pinResult) {
+    await pinResult.deleteOne();
+    return res.json({ ok: true });
+  }
+
   const report = await Report.findById(req.params.id);
   if (!report) return res.status(404).json({ message: 'Report not found' });
   if (report.sessionId) {
@@ -447,13 +599,9 @@ router.delete('/reports/:id', async (req, res) => {
 });
 
 async function publishSession(session) {
-  if (!session.currentQuestion) {
-    if (!hasResumeData(session.resumeData)) {
-      session.resumeData = await getLatestResumeData(session.candidateId);
-    }
-    const first = await generateFirstQuestion(session);
-    session.currentQuestion = first.question;
-    session.lastComment = first.comment || '';
+  const intro = ensureIntroQuestion(session);
+  if (session.questionIndex === 0) {
+    session.currentQuestion = intro;
   }
   await session.save();
   await Notification.create({
@@ -496,15 +644,6 @@ async function getLatestResumeData(candidateId) {
   return resume || {};
 }
 
-function hasResumeData(data) {
-  return Boolean(
-    data?.skills?.length ||
-      data?.education?.length ||
-      data?.projects?.length ||
-      data?.experience?.length
-  );
-}
-
 function formatAdminSession(session) {
   return {
     id: session._id,
@@ -523,7 +662,7 @@ function formatAdminSession(session) {
     progress: `${session.questionIndex || 0}/${session.totalQuestions || 0}`,
     currentQuestion: session.currentQuestion,
     status: session.status,
-    overallScore: session.overallScore,
+    overallScore: normalizeScore(session.overallScore),
     recommendation: session.recommendation,
     reportId: session.reportId,
     createdAt: session.createdAt,
@@ -551,7 +690,7 @@ function formatAdminReport(report) {
     technicalScore: report.technicalScore,
     communicationScore: report.communicationScore,
     confidenceScore: report.confidenceScore,
-    overallScore: report.overallScore,
+    overallScore: normalizeScore(report.overallScore),
     recommendation: report.recommendation,
     summary: report.summary,
     strengths: report.strengths || [],

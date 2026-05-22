@@ -10,12 +10,20 @@ const storage = multer.diskStorage({
   filename: (_, file, cb) => cb(null, `${Date.now()}-${file.originalname}`),
 });
 
-function isPdf(file) {
+const ALLOWED_TYPES = [
+  'application/pdf',
+  'application/x-pdf',
+  'application/msword',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+];
+
+function isAllowedCv(file) {
   const name = (file.originalname || '').toLowerCase();
   return (
-    file.mimetype === 'application/pdf' ||
-    file.mimetype === 'application/x-pdf' ||
-    name.endsWith('.pdf')
+    ALLOWED_TYPES.includes(file.mimetype) ||
+    name.endsWith('.pdf') ||
+    name.endsWith('.doc') ||
+    name.endsWith('.docx')
   );
 }
 
@@ -23,8 +31,8 @@ const upload = multer({
   storage,
   limits: { fileSize: 5 * 1024 * 1024 },
   fileFilter: (_, file, cb) => {
-    if (isPdf(file)) cb(null, true);
-    else cb(new Error('Only PDF resumes allowed'));
+    if (isAllowedCv(file)) cb(null, true);
+    else cb(new Error('Only PDF, DOC, or DOCX resumes allowed'));
   },
 });
 

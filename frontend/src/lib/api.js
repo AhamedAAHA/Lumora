@@ -1,8 +1,6 @@
 import axios from 'axios';
 
-const baseURL =
-  import.meta.env.VITE_API_URL ||
-  (import.meta.env.DEV ? '/api' : 'http://localhost:5000/api');
+const baseURL = import.meta.env.VITE_API_URL || '/api';
 
 const api = axios.create({
   baseURL,
@@ -26,7 +24,7 @@ api.interceptors.response.use(
   (error) => {
     if (!error.response) {
       error.message =
-        'Cannot reach server. Run backend: cd backend && npm run dev (port 5000).';
+        'Cannot reach server. From project root run: npm run dev — then open http://localhost:5173';
     } else if (error.response.status === 503) {
       error.message =
         error.response.data?.message ||

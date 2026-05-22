@@ -11,7 +11,7 @@ router.post('/speak', protect, async (req, res) => {
     if (!audioUrl) {
       return res.json({ audioUrl: null, fallback: true });
     }
-    const base = process.env.SERVER_URL || `http://localhost:${process.env.PORT || 5000}`;
+    const base = process.env.SERVER_URL || 'http://localhost:5173';
     res.json({ audioUrl: `${base}${audioUrl}` });
   } catch (err) {
     res.status(500).json({ message: err.message });

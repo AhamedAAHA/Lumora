@@ -4,6 +4,7 @@ client/
 server/
 uploads/
 public/audio/
+backend/public/audio/
 .env
 .env.local
 *.log
