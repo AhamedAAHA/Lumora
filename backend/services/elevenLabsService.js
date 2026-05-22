@@ -14,7 +14,10 @@ async function synthesizeSpeech(text, personality = 'friendly_hr', language = 'e
   const apiKey = process.env.ELEVENLABS_API_KEY;
   if (!apiKey) return null;
 
-  const voiceId = VOICE_MAP[personality] || VOICE_MAP.friendly_hr;
+  const voiceId =
+    process.env.ELEVENLABS_VOICE_ID ||
+    VOICE_MAP[personality] ||
+    VOICE_MAP.friendly_hr;
   try {
     const response = await axios.post(
       `https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`,

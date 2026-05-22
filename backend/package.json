@@ -4,6 +4,9 @@
   "description": "Lumora OS AI Interview Platform API",
   "main": "index.js",
   "scripts": {
+    "seed:admin": "node scripts/seedAdmin.js",
+    "backfill:scores": "node scripts/backfillScores.js",
+    "seed:demo": "node scripts/seedDemo.js",
     "start": "node index.js",
     "dev": "nodemon index.js"
   },

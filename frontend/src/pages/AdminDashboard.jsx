@@ -13,9 +13,12 @@ import {
   X,
   UserPlus,
   Users,
+  Copy,
+  KeyRound,
 } from 'lucide-react';
 import api from '../lib/api';
 import AppShell from '../layouts/AppShell';
+import OSDashboard from '../components/os/OSDashboard';
 
 const emptyUser = { name: '', email: '', password: '', role: 'candidate' };
 const emptyInterview = {
@@ -27,6 +30,21 @@ const emptyInterview = {
   includeCoding: false,
   currentQuestion: '',
   publish: true,
+};
+const emptyPinInterview = {
+  title: '',
+  jobRole: '',
+  candidateName: '',
+  candidateEmail: '',
+  q1: 'Tell me about yourself.',
+  q2: 'Why do you want to join our team?',
+  q3: '',
+  language: 'en',
+  personality: 'friendly_hr',
+  round: 'technical',
+  difficulty: 'medium',
+  includeCoding: false,
+  pinExpiryHours: '72',
 };
 const emptyJobRole = {
   title: '',
@@ -66,6 +84,11 @@ export default function AdminDashboard() {
   const [stats, setStats] = useState(null);
   const [users, setUsers] = useState([]);
   const [interviews, setInterviews] = useState([]);
+  const [pinInterviews, setPinInterviews] = useState([]);
+  const [pinForm, setPinForm] = useState(emptyPinInterview);
+  const [generatedPin, setGeneratedPin] = useState(null);
+  const [editingPinId, setEditingPinId] = useState('');
+  const [pinEditDraft, setPinEditDraft] = useState(null);
   const [reports, setReports] = useState([]);
   const [jobRoles, setJobRoles] = useState([]);
   const [questionBank, setQuestionBank] = useState([]);
@@ -82,6 +105,8 @@ export default function AdminDashboard() {
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState('');
+  const [liveDash, setLiveDash] = useState(null);
+  const [dashLoading, setDashLoading] = useState(false);
 
   const candidates = useMemo(() => users.filter((user) => user.role === 'candidate'), [users]);
   const visibleQuestions = useMemo(
@@ -99,18 +124,21 @@ export default function AdminDashboard() {
   const load = async () => {
     try {
       setError('');
-      const [overview, userRes, interviewRes, reportRes, roleRes, questionRes, settingsRes] = await Promise.all([
-        api.get('/analytics/admin'),
-        api.get('/admin/users'),
-        api.get('/admin/interviews'),
-        api.get('/admin/reports'),
-        api.get('/admin/job-roles'),
-        api.get('/admin/questions'),
-        api.get('/admin/settings'),
-      ]);
+      const [overview, userRes, interviewRes, pinRes, reportRes, roleRes, questionRes, settingsRes] =
+        await Promise.all([
+          api.get('/analytics/admin'),
+          api.get('/admin/users'),
+          api.get('/admin/interviews'),
+          api.get('/interviews'),
+          api.get('/admin/reports'),
+          api.get('/admin/job-roles'),
+          api.get('/admin/questions'),
+          api.get('/admin/settings'),
+        ]);
       setStats(overview.data);
       setUsers(userRes.data);
       setInterviews(interviewRes.data);
+      setPinInterviews(pinRes.data);
       setReports(reportRes.data);
       setJobRoles(roleRes.data);
       setQuestionBank(questionRes.data);
@@ -121,11 +149,20 @@ export default function AdminDashboard() {
     }
   };
 
+  const refreshLive = async () => {
+    setDashLoading(true);
+    try {
+      const { data } = await api.get('/analytics/live');
+      setLiveDash(data);
+    } catch (_) {}
+    setDashLoading(false);
+  };
+
   useEffect(() => {
-    const timer = window.setTimeout(() => {
-      load();
-    }, 0);
-    return () => window.clearTimeout(timer);
+    load();
+    refreshLive();
+    const id = setInterval(refreshLive, 15000);
+    return () => clearInterval(id);
   }, []);
 
   const run = async (success, task) => {
@@ -248,10 +285,139 @@ export default function AdminDashboard() {
   const deleteInterview = (id) =>
     run('Interview deleted', () => api.delete(`/admin/interviews/${id}`));
 
-  const updateReport = (report, recommendation) =>
-    run('Report updated', () => api.patch(`/admin/reports/${report.id}`, { recommendation }));
+  const createPinInterview = async (event) => {
+    event.preventDefault();
+    const questions = [pinForm.q1, pinForm.q2, pinForm.q3].map((q) => q.trim()).filter(Boolean);
+    if (questions.length < 2) {
+      setError('Add at least 2 custom questions for the PIN interview.');
+      return;
+    }
+    try {
+      setError('');
+      setMessage('');
+      const { data } = await api.post('/interviews/create', {
+        title: pinForm.title,
+        jobRole: pinForm.jobRole,
+        candidateName: pinForm.candidateName,
+        candidateEmail: pinForm.candidateEmail,
+        questions,
+        language: pinForm.language,
+        personality: pinForm.personality,
+        round: pinForm.round,
+        difficulty: pinForm.difficulty,
+        includeCoding: pinForm.includeCoding,
+      });
+      try {
+        const pinRes = await api.post(`/interviews/${data.interview.id}/generate-pin`, {
+          pinExpiryHours: Number(pinForm.pinExpiryHours) || 72,
+        });
+        setGeneratedPin({
+          interviewId: data.interview.id,
+          title: data.interview.title,
+          pinCode: pinRes.data.pinCode,
+          pinExpiresAt: pinRes.data.pinExpiresAt,
+        });
+        setMessage('PIN interview created and PIN generated');
+      } catch (pinErr) {
+        setGeneratedPin({ interviewId: data.interview.id, title: data.interview.title });
+        setError(
+          pinErr.response?.data?.message ||
+            'Interview saved but PIN generation failed. Use Generate PIN on the list.'
+        );
+      }
+      setPinForm(emptyPinInterview);
+      await load();
+    } catch (err) {
+      setError(err.response?.data?.message || err.message);
+    }
+  };
 
-  const deleteReport = (id) => run('Report deleted', () => api.delete(`/admin/reports/${id}`));
+  const generatePin = (interviewId) =>
+    run('PIN generated', async () => {
+      const { data } = await api.post(`/interviews/${interviewId}/generate-pin`, {
+        pinExpiryHours: Number(pinForm.pinExpiryHours) || 72,
+      });
+      setGeneratedPin({
+        interviewId,
+        pinCode: data.pinCode,
+        pinExpiresAt: data.pinExpiresAt,
+        title: data.interview?.title,
+      });
+    });
+
+  const copyPin = (pin) => {
+    navigator.clipboard?.writeText(pin);
+    setMessage('PIN copied to clipboard');
+  };
+
+  const deletePinInterview = (id) =>
+    run('PIN interview deleted', () => api.delete(`/interviews/${id}`));
+
+  const canEditPin = (iv) =>
+    iv.status !== 'completed' && iv.candidateStatus !== 'interview_started' && iv.candidateStatus !== 'completed';
+
+  const startEditPin = async (iv) => {
+    const interviewId = iv.id || iv._id;
+    if (!interviewId) {
+      setError('Interview id missing — refresh the page and try again.');
+      return;
+    }
+    try {
+      setError('');
+      const { data } = await api.get(`/interviews/${interviewId}`);
+      setEditingPinId(interviewId);
+      setPinEditDraft({
+        title: data.interview.title || '',
+        jobRole: data.interview.jobRole || '',
+        candidateName: data.interview.candidateName || '',
+        candidateEmail: data.interview.candidateEmail || '',
+        language: data.interview.language || 'en',
+        personality: data.interview.personality || 'friendly_hr',
+        round: data.interview.round || 'technical',
+        difficulty: data.interview.difficulty || 'medium',
+        includeCoding: !!data.interview.includeCoding,
+        customQuestions: (data.customQuestions || []).map((q) => ({
+          id: q._id,
+          questionText: q.questionText || '',
+        })),
+      });
+    } catch (err) {
+      setError(err.response?.data?.message || err.message);
+    }
+  };
+
+  const savePinEdit = () =>
+    run('PIN interview updated', async () => {
+      await api.put(`/interviews/${editingPinId}`, {
+        title: pinEditDraft.title,
+        jobRole: pinEditDraft.jobRole,
+        candidateName: pinEditDraft.candidateName,
+        candidateEmail: pinEditDraft.candidateEmail,
+        language: pinEditDraft.language,
+        personality: pinEditDraft.personality,
+        round: pinEditDraft.round,
+        difficulty: pinEditDraft.difficulty,
+        includeCoding: pinEditDraft.includeCoding,
+        customQuestions: pinEditDraft.customQuestions,
+      });
+      setEditingPinId('');
+      setPinEditDraft(null);
+    });
+
+  const updateReport = (report, recommendation) =>
+    run('Report updated', () =>
+      api.patch(
+        report.source === 'pin' ? `/admin/pin-results/${report.id}` : `/admin/reports/${report.id}`,
+        { recommendation }
+      )
+    );
+
+  const deleteReport = (report) =>
+    run('Report deleted', () =>
+      api.delete(
+        report.source === 'pin' ? `/admin/pin-results/${report.id}` : `/admin/reports/${report.id}`
+      )
+    );
 
   const saveSettings = (event) => {
     event.preventDefault();
@@ -285,17 +451,19 @@ export default function AdminDashboard() {
 
         {activeTab === 'overview' && (
           <div className="space-y-5">
+            <OSDashboard stats={liveDash || {}} loading={dashLoading} />
+
             <div className="grid gap-3 md:grid-cols-4">
               <Metric label="Candidates" value={stats?.totalCandidates ?? candidates.length} />
               <Metric label="Interviews" value={interviews.length} />
-              <Metric label="Completed" value={stats?.totalInterviews ?? 0} />
+              <Metric label="Completed" value={stats?.completedCount ?? 0} />
               <Metric label="Success" value={`${stats?.successRate ?? 0}%`} />
             </div>
             <div className="grid gap-5 lg:grid-cols-2">
               <Panel title="Top Candidates" icon={Users}>
                 <Stack>
                   {(stats?.topCandidates || []).map((candidate) => (
-                    <Row key={candidate.name} title={candidate.name} meta={`${candidate.score}% average`} />
+                    <Row key={candidate.name} title={candidate.name} meta={`${formatPct(candidate.score)} average`} />
                   ))}
                   {(!stats?.topCandidates || stats.topCandidates.length === 0) && (
                     <Empty text="Completed candidate results will appear here." />
@@ -436,85 +604,252 @@ export default function AdminDashboard() {
         )}
 
         {activeTab === 'interviews' && (
-          <div className="grid gap-5 lg:grid-cols-[420px_1fr]">
-            <Panel title="Create Interview" icon={ClipboardList}>
-              <form onSubmit={createInterview} className="space-y-3">
-                <Select
-                  value={interviewForm.candidateId}
-                  onChange={(candidateId) => setInterviewForm((form) => ({ ...form, candidateId }))}
-                  options={[['', 'Select candidate'], ...candidates.map((candidate) => [candidate.id, candidate.name])]}
-                />
-                <Select
-                  value={interviewForm.jobRoleId}
-                  onChange={(jobRoleId) => setInterviewForm((form) => ({ ...form, jobRoleId }))}
-                  options={[['', 'Select job role'], ...jobRoles.map((role) => [role._id, role.title])]}
-                />
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <Select
-                    value={interviewForm.round}
-                    onChange={(round) => setInterviewForm((form) => ({ ...form, round }))}
-                    options={[['hr', 'HR'], ['aptitude', 'Aptitude'], ['technical', 'Technical'], ['final', 'Final']]}
+          <div className="space-y-6">
+            {generatedPin?.pinCode && (
+              <div className="os-panel flex flex-wrap items-center justify-between gap-4 border border-indigo-500/40 bg-indigo-500/10 p-5">
+                <div>
+                  <p className="text-xs uppercase tracking-widest text-indigo-300">Candidate PIN</p>
+                  <p className="mt-2 font-mono text-4xl font-bold tracking-[0.35em] text-white">
+                    {generatedPin.pinCode}
+                  </p>
+                  <p className="mt-2 text-sm text-white/50">
+                    Share with candidate → <a href="/pin" className="text-indigo-300 underline">/pin</a>
+                    {generatedPin.pinExpiresAt &&
+                      ` · Expires ${new Date(generatedPin.pinExpiresAt).toLocaleString()}`}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => copyPin(generatedPin.pinCode)}
+                  className="btn-primary inline-flex items-center gap-2"
+                >
+                  <Copy className="h-4 w-4" /> Copy PIN
+                </button>
+              </div>
+            )}
+
+            <div className="grid gap-5 lg:grid-cols-[420px_1fr]">
+              <Panel title="Schedule PIN Interview" icon={KeyRound}>
+                <form onSubmit={createPinInterview} className="space-y-3">
+                  <Input
+                    value={pinForm.title}
+                    onChange={(title) => setPinForm((f) => ({ ...f, title }))}
+                    placeholder="Interview title"
                   />
                   <Input
-                    type="number"
-                    value={interviewForm.totalQuestions}
-                    onChange={(totalQuestions) => setInterviewForm((form) => ({ ...form, totalQuestions }))}
-                    placeholder="Questions"
+                    value={pinForm.jobRole}
+                    onChange={(jobRole) => setPinForm((f) => ({ ...f, jobRole }))}
+                    placeholder="Job role"
                   />
-                </div>
-                <Select
-                  value={interviewForm.personality}
-                  onChange={(personality) => setInterviewForm((form) => ({ ...form, personality }))}
-                  options={[
-                    ['friendly_hr', 'Friendly HR'],
-                    ['strict_corporate', 'Strict Corporate'],
-                    ['senior_engineer', 'Senior Engineer'],
-                    ['startup_founder', 'Startup Founder'],
-                    ['technical_lead', 'Technical Lead'],
-                  ]}
-                />
-                <textarea
-                  value={interviewForm.currentQuestion}
-                  onChange={(event) =>
-                    setInterviewForm((form) => ({ ...form, currentQuestion: event.target.value }))
-                  }
-                  rows={4}
-                  placeholder="Add the first question manually, or generate it with AI."
-                  className="w-full resize-none rounded-xl border border-white/10 bg-white/[0.03] px-3 py-3 text-sm text-white outline-none placeholder:text-white/30 focus:border-white/30"
-                />
-                <div className="flex flex-wrap gap-3">
-                  <button type="button" onClick={() => generateQuestion('interview')} className="btn-secondary inline-flex items-center gap-2">
-                    <Sparkles className="h-4 w-4" /> {busy === 'question' ? 'Generating...' : 'Generate AI question'}
+                  <Input
+                    value={pinForm.candidateName}
+                    onChange={(candidateName) => setPinForm((f) => ({ ...f, candidateName }))}
+                    placeholder="Candidate name"
+                  />
+                  <Input
+                    value={pinForm.candidateEmail}
+                    onChange={(candidateEmail) => setPinForm((f) => ({ ...f, candidateEmail }))}
+                    placeholder="Candidate email"
+                  />
+                  <Input value={pinForm.q1} onChange={(q1) => setPinForm((f) => ({ ...f, q1 }))} placeholder="Question 1" />
+                  <Input value={pinForm.q2} onChange={(q2) => setPinForm((f) => ({ ...f, q2 }))} placeholder="Question 2" />
+                  <Input value={pinForm.q3} onChange={(q3) => setPinForm((f) => ({ ...f, q3 }))} placeholder="Question 3 (optional)" />
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <Select
+                      value={pinForm.round}
+                      onChange={(round) => setPinForm((f) => ({ ...f, round }))}
+                      options={[['hr', 'HR'], ['technical', 'Technical'], ['final', 'Final']]}
+                    />
+                    <Select
+                      value={pinForm.pinExpiryHours}
+                      onChange={(pinExpiryHours) => setPinForm((f) => ({ ...f, pinExpiryHours }))}
+                      options={[
+                        ['24', 'PIN expires 24h'],
+                        ['48', 'PIN expires 48h'],
+                        ['72', 'PIN expires 72h'],
+                        ['168', 'PIN expires 7 days'],
+                      ]}
+                    />
+                  </div>
+                  <Select
+                    value={pinForm.personality}
+                    onChange={(personality) => setPinForm((f) => ({ ...f, personality }))}
+                    options={[
+                      ['friendly_hr', 'Friendly HR'],
+                      ['strict_corporate', 'Strict Corporate'],
+                      ['senior_engineer', 'Senior Engineer'],
+                      ['startup_founder', 'Startup Founder'],
+                      ['technical_lead', 'Technical Lead'],
+                    ]}
+                  />
+                  <label className="inline-flex items-center gap-2 text-sm text-white/60">
+                    <input
+                      type="checkbox"
+                      checked={pinForm.includeCoding}
+                      onChange={(e) => setPinForm((f) => ({ ...f, includeCoding: e.target.checked }))}
+                    />
+                    Include coding round
+                  </label>
+                  <button className="mono-button" type="submit">
+                    <Plus className="h-4 w-4" /> Create interview
                   </button>
-                  <label className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2 text-sm text-white/60">
-                    <input
-                      type="checkbox"
-                      checked={interviewForm.includeCoding}
-                      onChange={(event) => setInterviewForm((form) => ({ ...form, includeCoding: event.target.checked }))}
-                    />
-                    Coding round
-                  </label>
-                  <label className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2 text-sm text-white/60">
-                    <input
-                      type="checkbox"
-                      checked={interviewForm.publish}
-                      onChange={(event) => setInterviewForm((form) => ({ ...form, publish: event.target.checked }))}
-                    />
-                    Publish now
-                  </label>
-                </div>
-                <button className="mono-button" type="submit">
-                  <Send className="h-4 w-4" /> Save interview
-                </button>
-              </form>
-            </Panel>
-            <Panel title="All Interviews" icon={ClipboardList}>
+                </form>
+              </Panel>
+
+              <Panel title="PIN Interviews (share code with candidate)" icon={KeyRound}>
+                <Stack>
+                  {pinInterviews.map((iv) =>
+                    editingPinId === iv.id && pinEditDraft ? (
+                      <div key={iv.id} className="space-y-3 rounded-xl border border-white/15 bg-black/30 p-4">
+                        <p className="text-sm font-semibold text-white">Edit PIN interview</p>
+                        <div className="grid gap-3 sm:grid-cols-2">
+                          <Input
+                            value={pinEditDraft.title}
+                            onChange={(title) => setPinEditDraft((d) => ({ ...d, title }))}
+                            placeholder="Title"
+                          />
+                          <Input
+                            value={pinEditDraft.jobRole}
+                            onChange={(jobRole) => setPinEditDraft((d) => ({ ...d, jobRole }))}
+                            placeholder="Job role"
+                          />
+                          <Input
+                            value={pinEditDraft.candidateName}
+                            onChange={(candidateName) => setPinEditDraft((d) => ({ ...d, candidateName }))}
+                            placeholder="Candidate name"
+                          />
+                          <Input
+                            value={pinEditDraft.candidateEmail}
+                            onChange={(candidateEmail) => setPinEditDraft((d) => ({ ...d, candidateEmail }))}
+                            placeholder="Candidate email"
+                          />
+                        </div>
+                        <div className="grid gap-3 sm:grid-cols-2">
+                          <Select
+                            value={pinEditDraft.round}
+                            onChange={(round) => setPinEditDraft((d) => ({ ...d, round }))}
+                            options={[['hr', 'HR'], ['technical', 'Technical'], ['final', 'Final']]}
+                          />
+                          <Select
+                            value={pinEditDraft.personality}
+                            onChange={(personality) => setPinEditDraft((d) => ({ ...d, personality }))}
+                            options={[
+                              ['friendly_hr', 'Friendly HR'],
+                              ['strict_corporate', 'Strict Corporate'],
+                              ['senior_engineer', 'Senior Engineer'],
+                              ['startup_founder', 'Startup Founder'],
+                              ['technical_lead', 'Technical Lead'],
+                            ]}
+                          />
+                        </div>
+                        <p className="text-xs text-white/45">Custom questions</p>
+                        {pinEditDraft.customQuestions.map((q, idx) => (
+                          <Input
+                            key={q.id || idx}
+                            value={q.questionText}
+                            onChange={(questionText) =>
+                              setPinEditDraft((d) => ({
+                                ...d,
+                                customQuestions: d.customQuestions.map((item, i) =>
+                                  i === idx ? { ...item, questionText } : item
+                                ),
+                              }))
+                            }
+                            placeholder={`Question ${idx + 1}`}
+                          />
+                        ))}
+                        <label className="inline-flex items-center gap-2 text-sm text-white/60">
+                          <input
+                            type="checkbox"
+                            checked={pinEditDraft.includeCoding}
+                            onChange={(e) =>
+                              setPinEditDraft((d) => ({ ...d, includeCoding: e.target.checked }))
+                            }
+                          />
+                          Include coding round
+                        </label>
+                        {iv.pinCode && (
+                          <p className="text-xs text-indigo-300/80">
+                            PIN {iv.pinCode} — unchanged when editing details
+                          </p>
+                        )}
+                        <div className="flex justify-end gap-2">
+                          <IconButton
+                            label="Cancel"
+                            onClick={() => {
+                              setEditingPinId('');
+                              setPinEditDraft(null);
+                            }}
+                          >
+                            <X className="h-4 w-4" />
+                          </IconButton>
+                          <IconButton label="Save" onClick={savePinEdit}>
+                            <Check className="h-4 w-4" />
+                          </IconButton>
+                        </div>
+                      </div>
+                    ) : (
+                      <Row
+                        key={iv.id}
+                        title={iv.title}
+                        meta={`${iv.candidateName} · ${iv.candidateEmail} · ${formatLabel(iv.status)} · ${iv.candidateStatus || 'pending'}`}
+                      >
+                        {iv.pinCode ? (
+                          <span className="rounded-lg border border-indigo-500/40 bg-indigo-500/10 px-3 py-1 font-mono text-lg tracking-widest text-indigo-200">
+                            {iv.pinCode}
+                          </span>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => generatePin(iv.id)}
+                            className="btn-primary inline-flex items-center gap-2 text-sm"
+                          >
+                            <KeyRound className="h-4 w-4" /> Generate PIN
+                          </button>
+                        )}
+                        {iv.pinCode && (
+                          <IconButton label="Copy PIN" onClick={() => copyPin(iv.pinCode)}>
+                            <Copy className="h-4 w-4" />
+                          </IconButton>
+                        )}
+                        {canEditPin(iv) && (
+                          <IconButton label="Edit interview" onClick={() => startEditPin(iv)}>
+                            <Pencil className="h-4 w-4" />
+                          </IconButton>
+                        )}
+                        {iv.hasResult && (
+                          <a
+                            href={`/pin-report/${iv.id}`}
+                            className="btn-secondary inline-flex h-9 items-center px-3 text-xs"
+                          >
+                            Report
+                          </a>
+                        )}
+                        <IconButton label="Delete" onClick={() => deletePinInterview(iv.id)}>
+                          <Trash2 className="h-4 w-4" />
+                        </IconButton>
+                      </Row>
+                    )
+                  )}
+                  {pinInterviews.length === 0 && (
+                    <Empty text="No PIN interviews yet. Create one, then click Generate PIN." />
+                  )}
+                </Stack>
+              </Panel>
+            </div>
+
+            <Panel title="Assigned interviews (account login)" icon={ClipboardList}>
+              <p className="mb-4 text-sm text-white/45">
+                Candidates who sign in at /login see these under Assigned Interviews. They must upload a resume
+                before attending. The first question is your introduction (set when assigning); later questions are
+                AI-generated from their resume.
+              </p>
               <Stack>
                 {interviews.map((interview) => (
                   <Row
                     key={interview.id}
                     title={interview.candidate?.name || 'Candidate'}
-                    meta={`${formatLabel(interview.round)} - ${formatLabel(interview.status)} - ${interview.progress}`}
+                    meta={`${formatLabel(interview.round)} · ${formatLabel(interview.status)} · ${interview.progress}`}
                   >
                     <select
                       className="mono-select h-9 w-28"
@@ -530,30 +865,29 @@ export default function AdminDashboard() {
                       <option value="draft">Draft</option>
                       <option value="active">Active</option>
                       <option value="completed">Completed</option>
-                      <option value="archived">Archived</option>
                     </select>
-                    <IconButton label="Save interview" onClick={() => updateInterview(interview)}>
+                    <IconButton label="Save" onClick={() => updateInterview(interview)}>
                       <Check className="h-4 w-4" />
                     </IconButton>
                     {interview.status === 'draft' && (
-                      <IconButton label="Publish interview" onClick={() => publishInterview(interview.id)}>
+                      <IconButton label="Publish" onClick={() => publishInterview(interview.id)}>
                         <Send className="h-4 w-4" />
                       </IconButton>
                     )}
-                    <IconButton label="Delete interview" onClick={() => deleteInterview(interview.id)}>
+                    <IconButton label="Delete" onClick={() => deleteInterview(interview.id)}>
                       <Trash2 className="h-4 w-4" />
                     </IconButton>
                   </Row>
                 ))}
-                {interviews.length === 0 && <Empty text="No interviews created yet." />}
+                {interviews.length === 0 && <Empty text="No account-based interviews." />}
               </Stack>
             </Panel>
           </div>
         )}
 
         {activeTab === 'questions' && (
-          <Panel title="All Questions" icon={Sparkles}>
-            <div className="grid min-w-0 gap-5 xl:grid-cols-[380px_minmax(0,1fr)]">
+          <div className="grid min-w-0 gap-5 xl:grid-cols-[380px_minmax(0,1fr)]">
+            <Panel title="Add Question" icon={Sparkles}>
               <form onSubmit={createQuestion} className="space-y-3">
                 <textarea
                   value={questionForm.text}
@@ -610,6 +944,8 @@ export default function AdminDashboard() {
                   </button>
                 </div>
               </form>
+            </Panel>
+            <Panel title="All Questions" icon={Sparkles}>
               <Stack>
                 <div className="grid min-w-0 gap-3 rounded-xl border border-white/10 bg-black/20 p-3 md:grid-cols-[minmax(0,1fr)_180px_180px]">
                   <Input
@@ -697,8 +1033,8 @@ export default function AdminDashboard() {
                 {questionBank.length === 0 && <Empty text="Manual and AI questions will appear here." />}
                 {questionBank.length > 0 && visibleQuestions.length === 0 && <Empty text="No questions match those filters." />}
               </Stack>
-            </div>
-          </Panel>
+            </Panel>
+          </div>
         )}
 
         {activeTab === 'reports' && (
@@ -708,8 +1044,14 @@ export default function AdminDashboard() {
                 <Row
                   key={report.id}
                   title={report.candidate?.name || 'Candidate'}
-                  meta={`${report.overallScore ?? 0}% - ${formatLabel(report.session?.round || 'interview')}`}
+                  meta={`${formatPct(report.overallScore)} - ${formatLabel(report.session?.round || 'interview')}`}
                 >
+                  <a
+                    href={report.pinInterviewId ? `/pin-report/${report.pinInterviewId}` : `/reports/${report.id}`}
+                    className="btn-secondary inline-flex h-9 items-center px-3 text-xs"
+                  >
+                    View
+                  </a>
                   <select
                     className="mono-select h-9 w-40"
                     value={report.recommendation || 'needs_improvement'}
@@ -720,7 +1062,7 @@ export default function AdminDashboard() {
                     <option value="needs_improvement">Needs work</option>
                     <option value="rejected">Rejected</option>
                   </select>
-                  <IconButton label="Delete report" onClick={() => deleteReport(report.id)}>
+                  <IconButton label="Delete report" onClick={() => deleteReport(report)}>
                     <Trash2 className="h-4 w-4" />
                   </IconButton>
                 </Row>
@@ -862,4 +1204,11 @@ function Empty({ text }) {
 
 function formatLabel(value) {
   return String(value || '').replace(/_/g, ' ');
+}
+
+function formatPct(score) {
+  const n = Number(score);
+  if (!Number.isFinite(n) || n <= 0) return '0%';
+  const pct = n > 0 && n <= 10 ? Math.round(n * 10) : Math.round(n);
+  return `${pct}%`;
 }

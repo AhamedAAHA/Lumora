@@ -1,0 +1,11 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <script>
+    const id = new URLSearchParams(location.search).get('id');
+    location.replace(id ? `/pin-report/${id}` : '/admin');
+  </script>
+</head>
+<body><a href="/admin">Admin Dashboard</a></body>
+</html>

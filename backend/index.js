@@ -20,6 +20,7 @@ const analyticsRoutes = require('./routes/analytics');
 const notificationRoutes = require('./routes/notifications');
 const reportRoutes = require('./routes/reports');
 const adminRoutes = require('./routes/admin');
+const lumoraApiRoutes = require('./routes/lumoraApi');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -29,14 +30,25 @@ connectDB().catch((err) => {
   console.error('Start MongoDB or set MONGODB_URI in backend/.env');
 });
 
-const allowedOrigins = [
-  'http://localhost:5173',
-  'http://localhost:5174',
-  'http://localhost:5175',
-  process.env.CLIENT_URL,
-].filter(Boolean);
+const APP_URL = process.env.CLIENT_URL || 'http://localhost:5173';
+const allowedOrigins = [APP_URL].filter(Boolean);
 
-app.use(helmet({ crossOriginResourcePolicy: false }));
+app.use(
+  helmet({
+    crossOriginResourcePolicy: false,
+    contentSecurityPolicy: {
+      directives: {
+        defaultSrc: ["'self'"],
+        scriptSrc: ["'self'", "'unsafe-inline'"],
+        scriptSrcAttr: ["'unsafe-inline'"],
+        styleSrc: ["'self'", "'unsafe-inline'"],
+        imgSrc: ["'self'", "data:", "blob:"],
+        mediaSrc: ["'self'", "blob:"],
+        connectSrc: ["'self'", APP_URL, 'ws://localhost:5173'],
+      },
+    },
+  })
+);
 app.use(
   cors({
     origin(origin, callback) {
@@ -64,6 +76,8 @@ app.get('/api/health', (_, res) =>
 );
 
 app.use('/audio', express.static(path.join(__dirname, 'public/audio')));
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+app.use(express.static(path.join(__dirname, 'public')));
 
 app.use((req, res, next) => {
   if (mongoose.connection.readyState !== 1) {
@@ -74,8 +88,10 @@ app.use((req, res, next) => {
   next();
 });
 
-app.use('/api/auth', authRoutes);
+// PIN admin routes (/interviews/:id GET/PUT, etc.) must register before legacy candidate /api/interviews
+app.use('/api', lumoraApiRoutes);
 app.use('/api/interviews', interviewRoutes);
+app.use('/api/auth', authRoutes);
 app.use('/api/resume', resumeRoutes);
 app.use('/api/voice', voiceRoutes);
 app.use('/api/analytics', analyticsRoutes);
@@ -89,5 +105,9 @@ app.use((err, _req, res, _next) => {
 });
 
 app.listen(PORT, () => {
-  console.log(`Lumora API running on http://localhost:${PORT}`);
+  const appUrl = process.env.SERVER_URL || APP_URL;
+  console.log(`Lumora API ready (internal port ${PORT})`);
+  console.log(`  Open app:  ${appUrl}`);
+  console.log(`  Admin:     ${appUrl}/admin-login.html`);
+  console.log(`  Candidate: ${appUrl}/candidate-pin-login.html`);
 });

@@ -10,6 +10,12 @@ const AdminDashboard = lazy(() => import('./pages/AdminDashboard'));
 const InterviewRoom = lazy(() => import('./pages/InterviewRoom'));
 const CodingRound = lazy(() => import('./pages/CodingRound'));
 const ReportPage = lazy(() => import('./pages/ReportPage'));
+const PinReportPage = lazy(() => import('./pages/PinReportPage'));
+const PinLogin = lazy(() => import('./pages/pin/PinLogin'));
+const PinCvUpload = lazy(() => import('./pages/pin/PinCvUpload'));
+const PinInterview = lazy(() => import('./pages/pin/PinInterview'));
+const PinCoding = lazy(() => import('./pages/pin/PinCoding'));
+const PinCompleted = lazy(() => import('./pages/pin/PinCompleted'));
 
 function PageLoader() {
   return (
@@ -29,59 +35,33 @@ function ProtectedRoute({ children, roles }) {
 
 export default function App() {
   return (
-    <Routes>
-      <Route path="/" element={<LandingPage />} />
-      <Route path="/login" element={<Login />} />
-      <Route path="/register" element={<Register />} />
-      <Route
-        path="/dashboard"
-        element={
-          <ProtectedRoute roles={['candidate']}>
-            <CandidateDashboard />
-          </ProtectedRoute>
-        }
-      />
-      <Route
-        path="/admin"
-        element={
-          <ProtectedRoute roles={['admin']}>
-            <AdminDashboard />
-          </ProtectedRoute>
-        }
-      />
-      <Route
-        path="/interview/setup"
-        element={
-          <ProtectedRoute roles={['candidate']}>
-            <Navigate to="/dashboard#assigned" replace />
-          </ProtectedRoute>
-        }
-      />
-      <Route
-        path="/interview/:sessionId"
-        element={
-          <ProtectedRoute roles={['candidate']}>
-            <InterviewRoom />
-          </ProtectedRoute>
-        }
-      />
-      <Route
-        path="/interview/:sessionId/coding"
-        element={
-          <ProtectedRoute roles={['candidate']}>
-            <CodingRound />
-          </ProtectedRoute>
-        }
-      />
-      <Route
-        path="/reports/:reportId"
-        element={
-          <ProtectedRoute roles={['candidate', 'admin']}>
-            <ReportPage />
-          </ProtectedRoute>
-        }
-      />
-      <Route path="*" element={<Navigate to="/" replace />} />
-    </Routes>
+    <Suspense fallback={<PageLoader />}>
+      <Routes>
+        <Route path="/" element={<LandingPage />} />
+
+        <Route path="/login" element={<Login />} />
+        <Route path="/register" element={<Register />} />
+
+        <Route path="/admin" element={<ProtectedRoute roles={['admin']}><AdminDashboard /></ProtectedRoute>} />
+        <Route path="/dashboard" element={<ProtectedRoute roles={['candidate']}><CandidateDashboard /></ProtectedRoute>} />
+        <Route path="/interview/:sessionId" element={<ProtectedRoute roles={['candidate']}><InterviewRoom /></ProtectedRoute>} />
+        <Route path="/interview/:sessionId/coding" element={<ProtectedRoute roles={['candidate']}><CodingRound /></ProtectedRoute>} />
+        <Route path="/reports/:reportId" element={<ProtectedRoute roles={['candidate', 'admin']}><ReportPage /></ProtectedRoute>} />
+        <Route path="/pin-report/:interviewId" element={<ProtectedRoute roles={['admin']}><PinReportPage /></ProtectedRoute>} />
+
+        {/* PIN candidate flow — same React UI */}
+        <Route path="/pin" element={<PinLogin />} />
+        <Route path="/pin/cv" element={<PinCvUpload />} />
+        <Route path="/pin/interview" element={<PinInterview />} />
+        <Route path="/pin/coding" element={<PinCoding />} />
+        <Route path="/pin/done" element={<PinCompleted />} />
+
+        {/* Old URLs */}
+        <Route path="/legacy/*" element={<Navigate to="/" replace />} />
+        <Route path="/candidate-pin-login.html" element={<Navigate to="/pin" replace />} />
+
+        <Route path="*" element={<Navigate to="/" replace />} />
+      </Routes>
+    </Suspense>
   );
 }

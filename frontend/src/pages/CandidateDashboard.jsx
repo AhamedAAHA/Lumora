@@ -16,28 +16,40 @@ export default function CandidateDashboard() {
   const [message, setMessage] = useState('');
   const [loadError, setLoadError] = useState('');
   const [uploading, setUploading] = useState('');
+  const [liveDash, setLiveDash] = useState(null);
+  const [dashLoading, setDashLoading] = useState(false);
 
   const load = async () => {
     try {
       setLoadError('');
-      const [assignedRes, historyRes, analyticsRes] = await Promise.all([
+      const [assignedRes, historyRes, analyticsRes, liveRes] = await Promise.all([
         api.get('/interviews/assigned'),
         api.get('/interviews/history'),
         api.get('/analytics/candidate'),
+        api.get('/analytics/live'),
       ]);
       setAssigned(assignedRes.data);
       setHistory(historyRes.data);
       setAnalytics(analyticsRes.data);
+      setLiveDash(liveRes.data);
     } catch (err) {
       setLoadError(err.response?.data?.message || err.message);
     }
   };
 
+  const refreshLive = async () => {
+    setDashLoading(true);
+    try {
+      const { data } = await api.get('/analytics/live');
+      setLiveDash(data);
+    } catch (_) {}
+    setDashLoading(false);
+  };
+
   useEffect(() => {
-    const timer = window.setTimeout(() => {
-      load();
-    }, 0);
-    return () => window.clearTimeout(timer);
+    load();
+    const id = setInterval(refreshLive, 15000);
+    return () => clearInterval(id);
   }, []);
 
   const uploadResume = async (sessionId, file) => {
@@ -49,7 +61,9 @@ export default function CandidateDashboard() {
       form.append('resume', file, file.name);
       const parsed = await api.post('/resume/parse', form);
       await api.patch(`/interviews/${sessionId}/resume`, { resumeData: parsed.data });
-      setMessage('Resume attached. Your first question was refreshed for this interview.');
+      setMessage(
+        'Resume uploaded and analyzed. Attend when ready — introduction first, then questions from your CV.'
+      );
       await load();
     } catch (err) {
       setLoadError(err.response?.data?.message || err.message);
@@ -59,6 +73,7 @@ export default function CandidateDashboard() {
   };
 
   const downloadReport = async (reportId) => {
+    try {
     const { data } = await api.get(`/reports/${reportId}`);
     const doc = new jsPDF();
     doc.setFontSize(16);
@@ -75,21 +90,9 @@ export default function CandidateDashboard() {
       y += 8;
     });
     doc.save(`lumora-report-${reportId}.pdf`);
-  };
-
-  const stats = {
-    pulse: String(assigned.length || history.length || analytics?.avgScore || 0),
-    pulseUnit: assigned.length ? '' : history.length ? '' : '%',
-    onTrack: analytics?.avgScore ?? 0,
-    queue: [
-      assigned[0]
-        ? `${formatLabel(assigned[0].round)} interview is ready`
-        : 'No assigned interviews right now',
-      history[0]
-        ? `Latest result: ${formatLabel(history[0].recommendation || history[0].status)}`
-        : 'Complete an interview to unlock reports',
-    ],
-    blockers: (analytics?.weakAreas || []).slice(0, 2).map((text) => ({ tag: 'Focus', text })),
+    } catch (err) {
+      setLoadError(err.response?.data?.message || err.message);
+    }
   };
 
   return (
@@ -101,7 +104,7 @@ export default function CandidateDashboard() {
       )}
 
       <div className="w-full max-w-full">
-        <OSDashboard stats={stats} />
+        <OSDashboard stats={liveDash || {}} loading={dashLoading} />
       </div>
 
       <section id="assigned" className="mt-8">
@@ -118,17 +121,36 @@ export default function CandidateDashboard() {
                     {session.totalQuestions} questions - {formatLabel(session.personality)}
                   </p>
                 </div>
-                <span className="pill-tag">{session.hasResume ? 'Resume added' : 'Resume optional'}</span>
+                <span
+                  className={`pill-tag ${session.hasResume ? 'text-emerald-200' : 'text-amber-200/90'}`}
+                >
+                  {session.hasResume ? 'Resume added' : 'Resume required'}
+                </span>
               </div>
 
               <p className="mt-4 line-clamp-2 text-sm leading-6 text-white/60">
-                {session.currentQuestion || 'Your interviewer will begin when you enter the room.'}
+                {session.previewQuestion ||
+                  session.introQuestion ||
+                  (session.hasResume
+                    ? session.currentQuestion
+                    : 'Upload your resume (PDF) to unlock this interview.')}
               </p>
+              {session.hasResume && (
+                <p className="mt-2 text-xs text-white/40">
+                  Step 1: Introduction (admin question) · Step 2+: AI questions from your resume
+                </p>
+              )}
 
               <div className="mt-5 flex flex-wrap items-center gap-3">
-                <label className="btn-secondary inline-flex cursor-pointer items-center gap-2">
+                <label
+                  className={`btn-secondary inline-flex cursor-pointer items-center gap-2 ${session.hasResume ? 'opacity-70' : ''}`}
+                >
                   <FileUp className="h-4 w-4" />
-                  {uploading === session._id ? 'Uploading...' : 'Upload resume'}
+                  {uploading === session._id
+                    ? 'Uploading...'
+                    : session.hasResume
+                      ? 'Replace resume'
+                      : 'Upload resume (required)'}
                   <input
                     type="file"
                     accept=".pdf,application/pdf"
@@ -140,9 +162,16 @@ export default function CandidateDashboard() {
                 <button
                   type="button"
                   onClick={() => navigate(`/interview/${session._id}`)}
-                  className="btn-primary inline-flex items-center gap-2"
+                  disabled={!session.canAttend && !session.hasResume}
+                  className="btn-primary inline-flex items-center gap-2 disabled:cursor-not-allowed disabled:opacity-40"
+                  title={
+                    session.hasResume
+                      ? 'Start with the introduction question'
+                      : 'Upload your resume (PDF) before attending'
+                  }
                 >
-                  <Play className="h-4 w-4" /> Attend interview
+                  <Play className="h-4 w-4" />{' '}
+                  {session.hasResume ? 'Attend interview' : 'Upload resume to attend'}
                 </button>
               </div>
             </article>

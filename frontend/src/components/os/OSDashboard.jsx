@@ -12,26 +12,21 @@ import {
   TrendingUp,
 } from 'lucide-react';
 
-const defaultQueue = [
-  'Draft interview feedback for candidate #2841',
-  'Summarize technical round - React state question',
-  'Schedule follow-up HR call',
-];
-
-const defaultBlockers = [
-  { tag: 'Technical', text: 'Low score on system design' },
-  { tag: 'HR', text: 'Communication needs improvement' },
-];
-
-export default function OSDashboard({
-  compact = false,
-  stats = {},
-}) {
-  const pulse = stats.pulse ?? '128';
-  const pulseUnit = stats.pulseUnit ?? 'k';
-  const onTrack = stats.onTrack ?? 68;
-  const queue = stats.queue ?? defaultQueue;
-  const blockers = stats.blockers ?? defaultBlockers;
+export default function OSDashboard({ compact = false, stats = {}, loading = false }) {
+  const pulse = stats.pulse ?? '0';
+  const pulseSuffix = stats.pulseSuffix ?? '';
+  const onTrack = stats.onTrack ?? 0;
+  const growthText = stats.growthText ?? '—';
+  const chartBars = stats.chartBars ?? [15, 20, 18, 25, 22, 28, 24];
+  const queue = stats.queue ?? ['Loading…'];
+  const blockers = stats.blockers ?? [];
+  const summary = stats.summary ?? 'Loading live interview data…';
+  const calendar = stats.calendar ?? [];
+  const alerts = stats.alerts ?? [];
+  const aiTask = stats.aiTask ?? '—';
+  const updatedAt = stats.updatedAt
+    ? new Date(stats.updatedAt).toLocaleTimeString()
+    : null;
 
   return (
     <div
@@ -39,13 +34,17 @@ export default function OSDashboard({
         compact ? 'max-h-[520px] text-[11px]' : 'min-h-[480px]'
       }`}
     >
-      {/* Top bar */}
       <div className="flex shrink-0 items-center justify-between border-b border-white/[0.06] px-4 py-3 md:px-5">
         <div className="flex items-center gap-2">
           <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-white text-xs font-bold text-black">
             L
           </span>
           <span className="font-semibold text-white/90">Lumora OS</span>
+          {stats.live && (
+            <span className="flex items-center gap-1 text-[10px] text-emerald-400">
+              <span className="live-dot" /> Live
+            </span>
+          )}
         </div>
         <div className="hidden items-center gap-4 text-xs text-white/45 sm:flex">
           <span className="text-white/80">Product</span>
@@ -53,13 +52,13 @@ export default function OSDashboard({
           <span>Security</span>
         </div>
         <div className="flex items-center gap-2 text-white/50">
+          {updatedAt && <span className="hidden text-[10px] text-white/30 md:inline">Updated {updatedAt}</span>}
           <Search className="h-4 w-4" />
           <Bell className="h-4 w-4" />
         </div>
       </div>
 
       <div className="flex min-h-0 flex-1 overflow-hidden">
-        {/* Sidebar */}
         <aside className="hidden w-[72px] shrink-0 flex-col items-center gap-1 border-r border-white/[0.06] py-4 sm:flex">
           <span className="mb-4 flex h-10 w-10 items-center justify-center rounded-xl bg-white/10 text-lg font-bold">
             L
@@ -86,42 +85,37 @@ export default function OSDashboard({
           ))}
         </aside>
 
-        {/* Main grid */}
         <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden p-3 md:p-4">
+          {loading && (
+            <p className="mb-2 text-center text-[10px] text-white/40">Refreshing live data…</p>
+          )}
           <div
             className={`grid gap-3 ${
-              compact
-                ? 'grid-cols-2'
-                : 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4'
+              compact ? 'grid-cols-2' : 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4'
             }`}
           >
-            {/* Today's Pulse */}
-            <div className="os-card col-span-1 sm:col-span-1">
+            <div className="os-card col-span-1">
               <p className="text-[10px] uppercase tracking-wider text-white/40">Today&apos;s Pulse</p>
               <div className="mt-2 flex items-end gap-2">
                 <span className="text-3xl font-bold leading-none">
                   {pulse}
-                  <span className="text-lg text-white/50">{pulseUnit}</span>
-                </span>
-                <span className="mb-1 flex items-center gap-1 text-[10px] text-emerald-400">
-                  <span className="live-dot" /> Live
+                  {pulseSuffix && <span className="text-lg text-white/50">{pulseSuffix}</span>}
                 </span>
               </div>
-              <div className="mt-3 flex items-end gap-0.5 h-8">
-                {[40, 55, 45, 70, 60, 85, 75].map((h, i) => (
+              <div className="mt-3 flex h-8 items-end gap-0.5">
+                {chartBars.map((h, i) => (
                   <div
                     key={i}
-                    className="flex-1 rounded-sm bg-white/20"
+                    className="flex-1 rounded-sm bg-emerald-500/40 transition-all duration-500"
                     style={{ height: `${h}%` }}
                   />
                 ))}
               </div>
-              <p className="mt-1 text-[10px] text-emerald-400/90">+17.2% vs last week</p>
+              <p className="mt-1 text-[10px] text-emerald-400/90">{growthText}</p>
             </div>
 
-            {/* Follow-ups */}
             <div className="os-card flex flex-col items-center justify-center text-center">
-              <p className="text-[10px] uppercase tracking-wider text-white/40 w-full text-left">
+              <p className="w-full text-left text-[10px] uppercase tracking-wider text-white/40">
                 Follow-ups
               </p>
               <div className="relative my-2 h-20 w-20">
@@ -134,7 +128,7 @@ export default function OSDashboard({
                     fill="none"
                     stroke="#34d399"
                     strokeWidth="3"
-                    strokeDasharray={`${onTrack} 100`}
+                    strokeDasharray={`${Math.min(100, onTrack)} 100`}
                   />
                 </svg>
                 <span className="absolute inset-0 flex items-center justify-center text-lg font-bold">
@@ -144,12 +138,11 @@ export default function OSDashboard({
               <p className="text-[10px] text-white/50">On track</p>
             </div>
 
-            {/* Action Queue */}
             <div className="os-card">
               <p className="text-[10px] uppercase tracking-wider text-white/40">Lumora Action Queue</p>
               <ul className="mt-2 space-y-2">
-                {queue.slice(0, 3).map((t) => (
-                  <li key={t} className="flex items-start gap-2 text-[11px] text-white/65">
+                {queue.slice(0, 4).map((t, i) => (
+                  <li key={`queue-${i}-${String(t).slice(0, 32)}`} className="flex items-start gap-2 text-[11px] text-white/65">
                     <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-white/30" />
                     {t}
                   </li>
@@ -157,75 +150,62 @@ export default function OSDashboard({
               </ul>
             </div>
 
-            {/* Blockers */}
             <div className="os-card">
               <p className="text-[10px] uppercase tracking-wider text-white/40">Interview Blockers</p>
               <ul className="mt-2 space-y-2">
-                {blockers.map((b) => (
-                  <li key={b.text} className="text-[11px]">
-                    <span className="text-white/35">{b.tag}: </span>
-                    <span className="text-white/70">{b.text}</span>
-                  </li>
-                ))}
+                {blockers.length ? (
+                  blockers.map((b) => (
+                    <li key={b.text} className="text-[11px]">
+                      <span className="text-white/35">{b.tag}: </span>
+                      <span className="text-white/70">{b.text}</span>
+                    </li>
+                  ))
+                ) : (
+                  <li className="text-[11px] text-white/45">No blockers right now</li>
+                )}
               </ul>
             </div>
 
-            {/* Weekly draft - wide */}
             <div
-              className={`os-card ${
-                compact ? 'col-span-2' : 'col-span-1 sm:col-span-2 lg:col-span-2'
-              }`}
+              className={`os-card ${compact ? 'col-span-2' : 'col-span-1 sm:col-span-2 lg:col-span-2'}`}
             >
               <p className="text-[10px] uppercase tracking-wider text-white/40">
                 Weekly Interview Summary
               </p>
-              <p className="mt-2 text-[11px] leading-relaxed text-white/55">
-                Lumora pulled context from completed interviews, resume skills, and confidence
-                analytics. 14 candidates processed; 6 shortlisted for technical round 2.
-              </p>
+              <p className="mt-2 text-[11px] leading-relaxed text-white/55">{summary}</p>
               <button type="button" className="mt-3 rounded-lg border border-white/15 px-3 py-1.5 text-[11px] hover:bg-white/5">
                 Review
               </button>
             </div>
 
-            {/* Calendar */}
             <div className="os-card">
               <p className="text-[10px] uppercase tracking-wider text-white/40">Calendar</p>
               <ul className="mt-2 space-y-1.5 text-[11px] text-white/60">
-                <li className="flex gap-2">
-                  <Calendar className="h-3 w-3 shrink-0 text-white/30" />
-                  10:00 Technical - Priya S.
-                </li>
-                <li className="flex gap-2">
-                  <Calendar className="h-3 w-3 shrink-0 text-white/30" />
-                  14:30 HR Final - Alex M.
-                </li>
-                <li className="flex gap-2">
-                  <Calendar className="h-3 w-3 shrink-0 text-white/30" />
-                  16:00 Coding round
-                </li>
+                {calendar.map((item) => (
+                  <li key={`${item.time}-${item.label}`} className="flex gap-2">
+                    <Calendar className="h-3 w-3 shrink-0 text-white/30" />
+                    {item.time} {item.label}
+                  </li>
+                ))}
               </ul>
             </div>
 
-            {/* Browser / AI task */}
             <div className="os-card">
               <p className="text-[10px] uppercase tracking-wider text-white/40">AI Task Runner</p>
               <p className="mt-2 flex items-center gap-1 text-[11px] text-amber-300/90">
-                <AlertCircle className="h-3 w-3" /> Awaiting approval
+                <AlertCircle className="h-3 w-3" /> Active
               </p>
-              <p className="mt-1 text-[10px] text-white/45">
-                Generate personalized questions from uploaded resume
-              </p>
+              <p className="mt-1 text-[10px] text-white/45">{aiTask}</p>
             </div>
 
-            {/* Alerts */}
             <div className="os-card">
               <p className="text-[10px] uppercase tracking-wider text-white/40">Alerts</p>
               <ul className="mt-2 space-y-1.5 text-[11px]">
-                <li className="flex items-center gap-2 text-red-400/90">
-                  <TrendingUp className="h-3 w-3" /> 3 anti-cheat flags today
-                </li>
-                <li className="text-white/55">2 reports ready to download</li>
+                {alerts.map((a) => (
+                  <li key={a} className="text-white/55">
+                    {a}
+                  </li>
+                ))}
               </ul>
             </div>
           </div>

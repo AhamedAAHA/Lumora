@@ -39,6 +39,42 @@ async function chat(system, user, language = 'en') {
   return res.choices[0]?.message?.content?.trim();
 }
 
+async function generateNextAiQuestion(session) {
+  const personality = PERSONALITY_PROMPTS[session.personality];
+  const resumeCtx = buildResumeContext(session.resumeData);
+  if (!resumeCtx) {
+    return fallbackQuestion(session);
+  }
+
+  const answered = (session.answers || []).map((a) => a.question).filter(Boolean);
+  const avoid = [session.introQuestion, session.currentQuestion, ...answered].filter(Boolean);
+
+  const prompt = await chat(
+    `${personality} Conduct a ${session.round} interview.\n\nCANDIDATE RESUME (only use facts from here):\n${resumeCtx}`,
+    `Generate ONE follow-up interview question strictly based on the candidate's actual resume above. ` +
+      `Reference a specific skill, project, or experience line that appears in the resume text. ` +
+      `Do NOT mention technologies, tools, or projects that are not listed in the resume. ` +
+      `Do NOT ask a generic introduction or "tell me about yourself". ` +
+      `Avoid repeating: ${avoid.slice(0, 10).join(' | ')}. ` +
+      `Return JSON: {"question":"...","comment":""}`,
+    session.language
+  );
+
+  if (prompt) {
+    try {
+      const parsed = JSON.parse(prompt.replace(/```json|```/g, '').trim());
+      if (parsed.question) return parsed;
+    } catch (_) {}
+  }
+
+  const resumeQuestion = pickFreshQuestion(
+    buildResumeFallbackQuestions(session.resumeData),
+    avoid
+  );
+  if (resumeQuestion) return { question: resumeQuestion, comment: '' };
+  return fallbackQuestion(session);
+}
+
 async function generateFirstQuestion(session) {
   const personality = PERSONALITY_PROMPTS[session.personality];
   const resumeCtx = buildResumeContext(session.resumeData);
@@ -101,11 +137,16 @@ function fallbackQuestion(session) {
 
 function buildResumeContext(resumeData = {}) {
   const parts = [];
-  if (resumeData.skills?.length) parts.push(`Resume skills: ${resumeData.skills.join(', ')}`);
+  if (resumeData.summary) parts.push(`Summary: ${resumeData.summary}`);
+  if (resumeData.skills?.length) parts.push(`Skills: ${resumeData.skills.join(', ')}`);
   if (resumeData.projects?.length) parts.push(`Projects: ${resumeData.projects.join('; ')}`);
   if (resumeData.experience?.length) parts.push(`Experience: ${resumeData.experience.join('; ')}`);
   if (resumeData.education?.length) parts.push(`Education: ${resumeData.education.join('; ')}`);
-  return parts.length ? `${parts.join('. ')}.` : '';
+  const raw = String(resumeData.rawText || '').trim();
+  if (raw.length > 0) {
+    parts.push(`Resume excerpt: ${raw.slice(0, 2500)}`);
+  }
+  return parts.length ? `${parts.join('\n')}` : '';
 }
 
 function buildResumeFallbackQuestions(resumeData = {}) {
@@ -114,10 +155,12 @@ function buildResumeFallbackQuestions(resumeData = {}) {
   const experience = (resumeData.experience || []).filter(Boolean).slice(0, 3);
   const questions = [];
 
-  skills.forEach((skill) => {
-    questions.push(`I noticed ${skill} in your resume. Can you walk me through a project where you used it and the trade-offs you made?`);
-    questions.push(`What is one difficult problem you solved using ${skill}, and how did you know your solution was working?`);
-  });
+  if (skills.length && (projects.length || experience.length)) {
+    const skill = skills[0];
+    questions.push(
+      `Your resume lists ${skill}. Describe a real project or role where you applied it and what outcome you achieved.`
+    );
+  }
   projects.forEach((project) => {
     questions.push(`Your resume mentions ${project}. What was the hardest technical decision in that project?`);
     questions.push(`For ${project}, how did you measure whether the implementation was successful?`);
@@ -144,12 +187,14 @@ function normalizeQuestion(question = '') {
 async function evaluateAndRespond(session, answer, metrics) {
   const lastQ = session.currentQuestion;
   const personality = PERSONALITY_PROMPTS[session.personality];
+  const resumeCtx = session.questionIndex > 0 ? buildResumeContext(session.resumeData) : '';
 
   const prompt = `Interview Q: ${lastQ}
 Candidate answer: ${answer}
 Metrics: confidence ${metrics.confidence}, communication ${metrics.communication}
 Difficulty: ${session.difficulty}
 Question index: ${session.questionIndex}
+${resumeCtx ? `${resumeCtx} Next questions should stay relevant to this resume when not using a follow-up.` : 'This was the introduction question — keep the next question resume-based if index advances.'}
 
 Evaluate answer 0-100. Decide next difficulty: "easy"|"medium"|"hard" (raise if score>75, lower if <50).
 If answer incomplete, set needsFollowUp true and followUpQuestion.
@@ -246,6 +291,7 @@ async function evaluateCode(code) {
 
 module.exports = {
   generateFirstQuestion,
+  generateNextAiQuestion,
   evaluateAndRespond,
   generateCareerCoach,
   evaluateCode,

@@ -63,10 +63,11 @@ async function parseResumePdf(filePath) {
 
   return {
     skills: [...new Set(skills)],
-    education: education.length ? education : ['Education details from resume'],
-    projects: projects.length ? projects : skills.slice(0, 3).map((s) => `${s} project`),
-    experience: experience.length ? experience : ['Professional experience'],
-    rawText: text.slice(0, 3000),
+    education,
+    projects,
+    experience,
+    summary: text.slice(0, 400).replace(/\s+/g, ' ').trim(),
+    rawText: text.slice(0, 6000),
   };
 }
 

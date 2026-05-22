@@ -1,59 +1,43 @@
-# Lumora OS — AI Interview Platform
+# Lumora AI Interviewer
 
-> **Project layout:** All app code lives in `frontend/` and `backend/`. If you still see old `client/` or `server/` folders, stop any running dev servers and delete them manually.
+Professional AI-powered interview platform with **PIN-based candidate access**, admin-scheduled interviews, custom questions, CV analysis, personalized AI questions, ElevenLabs voice, and full evaluation reports.
 
-Production-style AI-powered interview platform with adaptive questioning, multilingual support (English, Tamil, Sinhala), ElevenLabs voice personalities, resume-based questions, real-time confidence analytics, anti-cheat, coding rounds, and admin analytics.
+**Use only one URL in the browser:** http://localhost:5173
+
+- **Admin UI:** http://localhost:5173/login → http://localhost:5173/admin  
+- **Candidate PIN:** http://localhost:5173/pin (same React UI as the rest of the app)
+
+### Demo data
+
+```bash
+npm run seed:demo
+```
+
+Sample PINs: `482910` (new), `573821` (CV uploaded). Admin: `admin@lumora.com` / `admin123`
 
 ## Tech Stack
 
 | Layer | Stack |
 |-------|--------|
-| Frontend | React 19, Vite, Tailwind CSS, GSAP, Lenis, Recharts, Monaco Editor |
-| Backend | Node.js, Express, MongoDB, JWT, OpenAI, ElevenLabs |
-| Security | bcrypt password hashing, JWT auth, Helmet, rate limiting |
+| App (UI) | React 19 + Vite + HTML/CSS/JS interview pages — **port 5173** |
+| API | Node.js, Express, MongoDB — runs in background, proxied through 5173 |
+| Security | bcrypt, JWT, Helmet, rate limiting |
 
-## Project Structure
-
-```
-Lumora/
-├── frontend/               # React + Vite frontend
-│   └── src/
-│       ├── components/     # Landing UI (Navbar, Hero, FeatureCard, etc.)
-│       ├── pages/          # App pages (dashboard, interview, auth)
-│       ├── hooks/          # Anti-cheat, confidence analysis
-│       └── lib/            # API client, GSAP animations
-├── backend/                # Express REST API
-│   ├── models/             # MongoDB schemas
-│   ├── routes/             # API routes
-│   └── services/           # AI, ElevenLabs, resume parser
-└── README.md
-```
-
-## Installation
+## Quick Start
 
 ### Prerequisites
 
 - Node.js 18+
-- MongoDB running locally or MongoDB Atlas URI
+- MongoDB running locally or Atlas URI
 
-### 1. Install dependencies
+### 1. Install
 
 ```bash
 cd Lumora
-npm install
 npm run install:all
 ```
 
-Or install separately:
-
-```bash
-cd frontend && npm install
-cd ../backend && npm install
-```
-
-### 2. Environment variables
-
-**Backend** — copy and edit:
+### 2. Environment
 
 ```bash
 cd backend
@@ -62,97 +46,56 @@ copy .env.example .env
 
 Set at minimum:
 
-- `MONGODB_URI`
-- `JWT_SECRET`
-- `OPENAI_API_KEY` (optional — fallbacks work without it)
-- `ELEVENLABS_API_KEY` (optional — voice disabled without it)
-
-**Frontend** (optional):
-
-```bash
-cd frontend
-copy .env.example .env
+```env
+MONGODB_URI=mongodb://127.0.0.1:27017/lumora
+JWT_SECRET=your_super_secret_jwt_key
+SERVER_URL=http://localhost:5173
+CLIENT_URL=http://localhost:5173
 ```
 
-### 3. Start development
+Optional: `OPENAI_API_KEY`, `ELEVENLABS_API_KEY`, `ELEVENLABS_VOICE_ID`
 
-**Terminal 1 — API:**
+### 3. Seed admin
 
 ```bash
 cd backend
-npm run dev
+npm run seed:admin
 ```
 
-**Terminal 2 — Frontend:**
+Default: `admin@lumora.com` / `admin123`
 
-```bash
-cd frontend
-npm run dev
-```
+### 4. Run (single command)
 
-Or from root (after `npm install` for concurrently):
+From project root:
 
 ```bash
 npm run dev
 ```
 
-- Landing & app: http://localhost:5173
-- API: http://localhost:5000
+This starts **everything** on **http://localhost:5173** (API is auto-started and proxied — do not open port 5000).
 
-## Features Implemented
+| Page | URL |
+|------|-----|
+| Landing | http://localhost:5173/ |
+| Admin login | http://localhost:5173/admin-login.html |
+| Admin dashboard | http://localhost:5173/admin-dashboard.html |
+| Candidate PIN | http://localhost:5173/candidate-pin-login.html |
 
-1. **Multilingual** — EN / TA / SI language selection; AI prompts localized
-2. **Adaptive interviews** — Difficulty adjusts from answer scores
-3. **Personality modes** — 5 interviewer personas + ElevenLabs voice mapping
-4. **Resume-based questions** — PDF upload → skill/project extraction
-5. **Confidence analysis** — Fillers, WPM, hesitation → live scores
-6. **AI career coach** — Post-interview roadmap and tips
-7. **Recommendation engine** — selected / shortlisted / needs improvement / rejected
-8. **Anti-cheat** — Tab switch, copy/paste block, inactivity warnings
-9. **Live analytics** — Confidence meter, charts, progress
-10. **Coding round** — Monaco editor + AI evaluation
-11. **Multi-round** — HR, aptitude, technical, final
-12. **Follow-up questions** — Triggered when answers are incomplete
-13. **Conversational flow** — AI comments between questions
-14. **Candidate history** — Scores, trends, strengths/weaknesses
-15. **Admin analytics** — Performance, fail rates, top candidates
-16. **PDF reports** — Downloadable interview summary
-17. **Modern UI** — Dark luxury theme, glassmorphism, GSAP animations
-18. **AI avatar** — Animated interviewer on interview screen
-19. **Notifications** — Scheduled, result, completion alerts
-20. **Scalable structure** — Modular routes, services, components
+## Admin credentials
 
-## Landing Page (Lumora OS)
+- **Email:** `admin@lumora.com`
+- **Password:** `admin123`
 
-Premium dark landing with:
+## Workflows
 
-- GSAP hero fade-up, scroll reveals, parallax dashboard
-- Lenis smooth scroll + ScrollTrigger
-- Glassmorphism cards, pill tags, fake dashboard widgets
-- Components: `Navbar`, `Hero`, `FeatureCard`, `DashboardPreview`, `UseCases`
+**Admin:** Login → Dashboard → Create interview → Add questions → Generate PIN → Share with candidate → View report
 
-## API Overview
+**Candidate:** PIN login → Upload CV → AI questions → Interview → Complete
 
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| POST | `/api/auth/register` | Register candidate/admin |
-| POST | `/api/auth/login` | Login |
-| POST | `/api/interviews/start` | Start interview session |
-| POST | `/api/interviews/:id/answer` | Submit answer + get next question |
-| POST | `/api/resume/parse` | Upload PDF resume |
-| POST | `/api/voice/speak` | ElevenLabs TTS |
-| GET | `/api/analytics/admin` | Admin dashboard stats |
-| GET | `/api/reports/:id` | Interview report |
+## Testing
 
-## Production Build
-
-```bash
-cd frontend && npm run build
-cd backend && npm start
-```
-
-Serve `frontend/dist` via CDN or reverse proxy; point API to your deployed server and set `VITE_API_URL`.
+See [TESTING.md](TESTING.md) for the full end-to-end checklist.
 
 ## License
 
-MIT — Built for Lumora AI Interviewer project.
+MIT
