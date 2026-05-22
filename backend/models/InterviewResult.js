@@ -27,15 +27,7 @@ const interviewResultSchema = new mongoose.Schema(
     },
     finalFeedback: { type: String },
     cvSummary: { type: String },
-    answersSummary: [
-      {
-        question: String,
-        answer: String,
-        score: Number,
-        feedback: String,
-        type: String,
-      },
-    ],
+    answersSummary: [mongoose.Schema.Types.Mixed],
   },
   { timestamps: true }
 );

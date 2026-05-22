@@ -107,26 +107,6 @@ async function clearLegacyFollowUps(candidate) {
   await candidate.save();
 }
 
-async function syncAnswersSummary(interviewId, candidateId) {
-  const answers = await CandidateAnswer.find({ interviewId, candidateId }).sort({ createdAt: 1 });
-  if (!answers.length) return;
-  await InterviewResult.findOneAndUpdate(
-    { interviewId },
-    {
-      interviewId,
-      candidateId,
-      answersSummary: answers.map((a) => ({
-        question: a.questionText,
-        answer: a.candidateAnswer,
-        score: a.aiScore,
-        feedback: a.aiFeedback,
-        type: a.questionType,
-      })),
-    },
-    { upsert: true, setDefaultsOnInsert: true }
-  );
-}
-
 function finalizePayload(req, interview, evaluation = null) {
   return {
     completed: false,
@@ -958,12 +938,6 @@ router.post('/candidate/submit-answer', protectCandidate, async (req, res) => {
       aiFeedback: evaluation.feedback,
       metrics,
     });
-
-    try {
-      await syncAnswersSummary(interview._id, req.candidate._id);
-    } catch (syncErr) {
-      console.warn('[submit-answer] syncAnswersSummary failed:', syncErr.message);
-    }
 
     if (req.candidate.metricsHistory?.length > 30) {
       req.candidate.metricsHistory = req.candidate.metricsHistory.slice(-30);

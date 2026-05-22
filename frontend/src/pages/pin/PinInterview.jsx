@@ -20,6 +20,7 @@ export default function PinInterview() {
   const [submitError, setSubmitError] = useState('');
   const submitLockRef = useRef(false);
   const plannedTotalRef = useRef(0);
+  const answeredCountRef = useRef(0);
   const [submitting, setSubmitting] = useState(false);
   const audioRef = useRef(null);
   const voicePlayedRef = useRef('');
@@ -36,6 +37,16 @@ export default function PinInterview() {
   }, []);
 
   const { warnings } = useAntiCheat(reportCheat);
+
+  const finishInterview = useCallback(async (includeCoding) => {
+    if (includeCoding) {
+      navigate('/pin/coding?finalize=1', { replace: true });
+      return;
+    }
+    await pinApi.post('/candidate/complete-interview');
+    sessionStorage.setItem('lumora_candidate_status', 'completed');
+    navigate('/pin/done', { replace: true });
+  }, [navigate]);
 
   const loadSession = useCallback(async () => {
     const { data } = await pinApi.get('/candidate/session');
@@ -62,13 +73,7 @@ export default function PinInterview() {
         data.progress.current >= data.progress.total);
 
     if (atQuestionLimit) {
-      if (data.includeCoding && !data.codingDone) {
-        navigate('/pin/coding?finalize=1', { replace: true });
-        return;
-      }
-      await pinApi.post('/candidate/complete-interview');
-      sessionStorage.setItem('lumora_candidate_status', 'completed');
-      navigate('/pin/done', { replace: true });
+      await finishInterview(data.includeCoding && !data.codingDone);
       return;
     }
     const serverTotal = data.progress?.total || 0;
@@ -89,7 +94,7 @@ export default function PinInterview() {
         : data.progress,
     });
     setQuestion(data.currentQuestion);
-  }, [navigate]);
+  }, [navigate, finishInterview]);
 
   useEffect(() => {
     if (!getPinToken()) {
@@ -137,34 +142,31 @@ export default function PinInterview() {
     startTimer();
     try {
       const { data } = await pinApi.post('/candidate/submit-answer', { answer: answer.trim(), metrics });
+
+      answeredCountRef.current += 1;
+      const fixedTotal = plannedTotalRef.current || data.progress?.total || 0;
+      plannedTotalRef.current = fixedTotal;
+      const answeredSoFar = answeredCountRef.current;
+
       setFeedback(
-        data.evaluation?.feedback ? `Score ${data.evaluation.score}/10 — ${data.evaluation.feedback}` : ''
+        data.evaluation?.feedback ? `Score ${data.evaluation.score}/10 - ${data.evaluation.feedback}` : ''
       );
-      if (data.finalize || data.progress?.current >= data.progress?.total) {
-        if (data.includeCoding) {
-          navigate('/pin/coding?finalize=1', { replace: true });
-          return;
-        }
-        await pinApi.post('/candidate/complete-interview');
-        sessionStorage.setItem('lumora_candidate_status', 'completed');
-        navigate('/pin/done', { replace: true });
+
+      const limitReached =
+        data.finalize ||
+        answeredSoFar >= fixedTotal ||
+        data.progress?.current >= fixedTotal ||
+        !data.nextQuestion?.text;
+
+      if (limitReached) {
+        await finishInterview(data.includeCoding);
         return;
       }
-      if (!data.nextQuestion?.text) {
-        await pinApi.post('/candidate/complete-interview');
-        sessionStorage.setItem('lumora_candidate_status', 'completed');
-        navigate('/pin/done', { replace: true });
-        return;
-      }
+
       voicePlayedRef.current = '';
       setQuestion(data.nextQuestion);
       setAnswer('');
       setSession((s) => {
-        const fixedTotal = Math.min(
-          plannedTotalRef.current || s?.progress?.total || data.progress?.total || 0,
-          data.progress?.total || plannedTotalRef.current || s?.progress?.total || 0
-        );
-        plannedTotalRef.current = fixedTotal;
         const current = Math.min(data.progress?.current || 0, fixedTotal);
         return {
           ...s,

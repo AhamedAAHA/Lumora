@@ -385,17 +385,31 @@ export default function AdminDashboard() {
   const viewPinAnswers = async (iv) => {
     const interviewId = iv.id || iv._id;
     if (!interviewId) return;
+    setPinAnswersView({
+      title: iv.title || 'PIN interview',
+      candidateName: iv.candidateName || 'Candidate',
+      answers: [],
+      loading: true,
+    });
     try {
       setError('');
-      const { data } = await api.get(`/interviews/${interviewId}/report`);
+      const { data } = await api.get(`/interviews/${interviewId}`);
       setPinAnswersView({
         title: data.interview?.title || iv.title,
-        candidateName: data.candidate?.name || iv.candidateName,
-        answers: data.answers || [],
-        partial: data.partial,
+        candidateName: data.candidate?.name || data.interview?.candidateName || iv.candidateName,
+        answers: Array.isArray(data.answers) ? data.answers : [],
+        partial: !data.result,
+        loading: false,
       });
     } catch (err) {
-      setError(err.response?.data?.message || err.message);
+      setPinAnswersView({
+        title: iv.title || 'PIN interview',
+        candidateName: iv.candidateName || 'Candidate',
+        answers: [],
+        partial: true,
+        loading: false,
+        error: err.response?.data?.message || err.message,
+      });
     }
   };
 
@@ -441,8 +455,8 @@ export default function AdminDashboard() {
   return (
     <AppShell title="Admin Dashboard" subtitle="Manage interviews, candidates, reports, and publishing.">
       {pinAnswersView && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
-          <div className="max-h-[85vh] w-full max-w-2xl overflow-y-auto rounded-2xl border border-white/15 bg-[#0f1118] p-6 shadow-2xl">
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/80 p-4">
+          <div className="max-h-[85vh] w-full max-w-2xl overflow-y-auto rounded-2xl border border-white/20 bg-[#101116] p-6 text-white shadow-2xl ring-1 ring-white/10">
             <div className="flex items-start justify-between gap-4">
               <div>
                 <h3 className="text-lg font-semibold text-white">{pinAnswersView.title}</h3>
@@ -459,7 +473,13 @@ export default function AdminDashboard() {
                 Close
               </button>
             </div>
-            {pinAnswersView.answers.length === 0 ? (
+            {pinAnswersView.loading ? (
+              <p className="mt-6 text-sm text-white/55">Loading submitted answers...</p>
+            ) : pinAnswersView.error ? (
+              <p className="mt-6 rounded-xl border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-200">
+                {pinAnswersView.error}
+              </p>
+            ) : pinAnswersView.answers.length === 0 ? (
               <p className="mt-6 text-sm text-white/45">No answers submitted yet.</p>
             ) : (
               <ul className="mt-5 space-y-4">
