@@ -38,7 +38,7 @@ export default function Login() {
     <AuthLayout title="Admin sign in" subtitle="Manage PIN interviews, candidates, and reports" showCta={false}>
       {serverOk === false && (
         <p className="mt-4 rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-200">
-          Backend not reachable. Run: <code className="text-xs">cd backend && npm run dev</code>
+          Server unavailable or starting up. Wait a minute, then refresh and try again.
         </p>
       )}
       {error && (

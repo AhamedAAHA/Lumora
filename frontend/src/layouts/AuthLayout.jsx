@@ -18,7 +18,7 @@ export default function AuthLayout({ children, title, subtitle, showCta = true }
         <div className="w-full max-w-md">
           <div className="glass-card glow-border p-8">
             <div className="mb-6 flex justify-center border-b border-white/10 pb-6">
-              <LumoraLogo to={null} size="lg" />
+              <LumoraLogo to={null} size="xl" />
             </div>
             <h1 className="text-2xl font-bold">{title}</h1>
             {subtitle && <p className="mt-1 text-sm text-white/50">{subtitle}</p>}

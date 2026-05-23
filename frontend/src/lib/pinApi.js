@@ -23,7 +23,9 @@ pinApi.interceptors.response.use(
       if (error.code === 'ECONNABORTED') {
         error.message = 'Request timed out. Check your connection and try again.';
       } else {
-        error.message = 'Cannot reach server. Run: npm run dev';
+        error.message = import.meta.env.VITE_API_URL
+          ? 'Cannot reach the server. It may be waking up; wait a minute and try again.'
+          : 'Cannot reach server. Run: npm run dev';
       }
     } else if (error.response.status === 429) {
       error.message =

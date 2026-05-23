@@ -1,10 +1,12 @@
 import axios from 'axios';
 
 const baseURL = import.meta.env.VITE_API_URL || '/api';
+const isHostedApi = /^https?:\/\//i.test(baseURL);
 
 const api = axios.create({
   baseURL,
-  timeout: 15000,
+  // Free hosting can take close to a minute to wake after inactivity.
+  timeout: 90000,
   headers: { 'Content-Type': 'application/json' },
 });
 
@@ -23,8 +25,9 @@ api.interceptors.response.use(
   (res) => res,
   (error) => {
     if (!error.response) {
-      error.message =
-        'Cannot reach server. From project root run: npm run dev — then open http://localhost:5173';
+      error.message = isHostedApi
+        ? 'Cannot reach the server. It may be waking up; wait a minute and try again.'
+        : 'Cannot reach server. From project root run: npm run dev, then open http://localhost:5173.';
     } else if (error.response.status === 503) {
       error.message =
         error.response.data?.message ||
