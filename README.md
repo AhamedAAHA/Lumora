@@ -13,7 +13,7 @@ Professional AI-powered interview platform with **PIN-based candidate access**, 
 npm run seed:demo
 ```
 
-Sample PINs: `482910` (new), `573821` (CV uploaded). Admin: `admin@lumora.com` / `admin123`
+Demo access values are generated or configured locally through `backend/.env`; do not publish them.
 
 ## Tech Stack
 
@@ -48,7 +48,7 @@ Set at minimum:
 
 ```env
 MONGODB_URI=mongodb://127.0.0.1:27017/lumora
-JWT_SECRET=your_super_secret_jwt_key
+JWT_SECRET=replace_with_a_long_random_secret
 SERVER_URL=http://localhost:5173
 CLIENT_URL=http://localhost:5173
 ```
@@ -62,7 +62,7 @@ cd backend
 npm run seed:admin
 ```
 
-Default: `admin@lumora.com` / `admin123`
+Set `ADMIN_EMAIL` and `ADMIN_PASSWORD` in `backend/.env` before running the seed command. Use a unique production password.
 
 ### 4. Run (single command)
 
@@ -80,11 +80,6 @@ This starts **everything** on **http://localhost:5173** (API is auto-started and
 | Admin login | http://localhost:5173/admin-login.html |
 | Admin dashboard | http://localhost:5173/admin-dashboard.html |
 | Candidate PIN | http://localhost:5173/candidate-pin-login.html |
-
-## Admin credentials
-
-- **Email:** `admin@lumora.com`
-- **Password:** `admin123`
 
 ## Workflows
 

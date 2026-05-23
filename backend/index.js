@@ -7,9 +7,8 @@ const path = require('path');
 const mongoose = require('mongoose');
 const connectDB = require('./config/db');
 
-if (!process.env.JWT_SECRET) {
-  process.env.JWT_SECRET = 'lumora_dev_secret_change_in_production';
-  console.warn('JWT_SECRET not set — using development default');
+if (!process.env.JWT_SECRET || process.env.JWT_SECRET.startsWith('replace_with_')) {
+  throw new Error('JWT_SECRET must be configured with a private random value before starting Lumora.');
 }
 
 const authRoutes = require('./routes/auth');

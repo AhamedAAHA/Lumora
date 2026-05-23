@@ -2,7 +2,7 @@
 
 Run the app: `npm run dev` → open **http://localhost:5173** only.
 
-Default admin: `admin@lumora.com` / `admin123`
+Use the admin account configured in your private `backend/.env` file.
 
 ---
 

@@ -16,17 +16,18 @@ const AIQuestion = require('../models/AIQuestion');
 const CandidateAnswer = require('../models/CandidateAnswer');
 const InterviewResult = require('../models/InterviewResult');
 const Notification = require('../models/Notification');
+const { generateUniquePin } = require('../utils/pinCode');
 
 const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://127.0.0.1:27017/lumora';
 
-const DEMO_PINS = {
-  active: '482910',
-  ready: '573821',
-};
-
 async function ensureUser({ name, email, password, role }) {
   let user = await User.findOne({ email });
-  if (!user) user = await User.create({ name, email, password, role });
+  if (!user) {
+    user = await User.create({ name, email, password, role });
+  } else {
+    user.password = password;
+    await user.save();
+  }
   return user;
 }
 
@@ -34,12 +35,18 @@ async function seed() {
   await mongoose.connect(MONGODB_URI);
   console.log('Seeding demo data...');
 
-  const admin = await ensureUser({
-    name: 'Lumora Admin',
-    email: process.env.ADMIN_EMAIL || 'admin@lumora.com',
-    password: process.env.ADMIN_PASSWORD || 'admin123',
-    role: 'admin',
-  });
+  const adminEmail = String(process.env.ADMIN_EMAIL || '').trim().toLowerCase();
+  const candidatePassword = String(process.env.DEMO_CANDIDATE_PASSWORD || '');
+  if (!adminEmail || adminEmail === 'your-admin-email@example.com') {
+    throw new Error('Set ADMIN_EMAIL in backend/.env and run npm run seed:admin before seeding demo data.');
+  }
+  if (!candidatePassword || candidatePassword.startsWith('replace_with_') || candidatePassword.length < 12) {
+    throw new Error('Set DEMO_CANDIDATE_PASSWORD to a private password of at least 12 characters.');
+  }
+  const admin = await User.findOne({ email: adminEmail, role: 'admin' });
+  if (!admin) {
+    throw new Error('Configured admin not found. Run npm run seed:admin first.');
+  }
 
   const candidates = await Promise.all(
     [
@@ -48,7 +55,7 @@ async function seed() {
       ['Priya Nair', 'priya@demo.com'],
       ['James Miller', 'james@demo.com'],
       ['Nina Brooks', 'nina@demo.com'],
-    ].map(([name, email]) => ensureUser({ name, email, password: 'demo1234', role: 'candidate' }))
+    ].map(([name, email]) => ensureUser({ name, email, password: candidatePassword, role: 'candidate' }))
   );
 
   await JobRole.deleteMany({ title: { $in: ['Full Stack Developer', 'HR Associate', 'Data Engineer', 'Product Designer'] } });
@@ -167,10 +174,15 @@ async function seed() {
     });
   }
 
-  // PIN interviews
+  // Generate fresh access PINs whenever local demo data is seeded.
+  const demoPins = {
+    active: await generateUniquePin(),
+    ready: await generateUniquePin(),
+    completed: await generateUniquePin(),
+  };
   const pinSpecs = [
     {
-      pin: DEMO_PINS.active,
+      pin: demoPins.active,
       name: 'Demo Candidate Active',
       email: 'pin.active@demo.com',
       title: 'DEMO: Full Stack Interview',
@@ -178,7 +190,7 @@ async function seed() {
       candStatus: 'pending',
     },
     {
-      pin: DEMO_PINS.ready,
+      pin: demoPins.ready,
       name: 'Demo Candidate Ready',
       email: 'pin.ready@demo.com',
       title: 'DEMO: Technical Screen',
@@ -186,7 +198,7 @@ async function seed() {
       candStatus: 'cv_uploaded',
     },
     {
-      pin: '691204',
+      pin: demoPins.completed,
       name: 'Verity',
       email: 'verity@demo.com',
       title: 'DEMO: Completed — Verity',
@@ -198,7 +210,7 @@ async function seed() {
   ];
 
   for (const spec of pinSpecs) {
-    let iv = await Interview.findOne({ pinCode: spec.pin });
+    let iv = await Interview.findOne({ title: spec.title, candidateEmail: spec.email });
     if (!iv) {
       iv = await Interview.create({
         title: spec.title,
@@ -233,6 +245,10 @@ async function seed() {
         orderNumber: 1,
         difficulty: 'medium',
       });
+    } else {
+      iv.pinCode = spec.pin;
+      iv.pinExpiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+      await iv.save();
     }
 
     let cand = await Candidate.findOne({ interviewId: iv._id });
@@ -248,6 +264,9 @@ async function seed() {
         language: 'en',
         personality: 'senior_engineer',
       });
+    } else {
+      cand.pinCode = spec.pin;
+      await cand.save();
     }
 
     if (spec.candStatus === 'completed') {
@@ -286,10 +305,10 @@ async function seed() {
   }
 
   console.log('\n--- Demo ready ---');
-  console.log('Admin: admin@lumora.com / admin123');
-  console.log('Candidates (login): verity@demo.com / demo1234');
-  console.log(`PIN (active): ${DEMO_PINS.active}`);
-  console.log(`PIN (CV uploaded): ${DEMO_PINS.ready}`);
+  console.log('Admin login configured through private environment values.');
+  console.log('Candidate login password: from private environment configuration');
+  console.log(`PIN (active): ${demoPins.active}`);
+  console.log(`PIN (CV uploaded): ${demoPins.ready}`);
   console.log('Open admin: http://localhost:5173/admin');
   console.log('Open PIN:    http://localhost:5173/pin\n');
 
