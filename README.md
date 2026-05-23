@@ -62,8 +62,6 @@ cd backend
 npm run seed:admin
 ```
 
-Default: `admin@lumora.com` / `admin123`
-
 ### 4. Run (single command)
 
 From project root:
