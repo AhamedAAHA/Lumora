@@ -57,15 +57,27 @@ export default function PinInterview() {
       navigate('/pin/coding?finalize=1', { replace: true });
       return;
     }
-    await pinApi.post('/candidate/complete-interview');
+    const { data } = await pinApi.post('/candidate/complete-interview');
     sessionStorage.setItem('lumora_candidate_status', 'completed');
-    navigate('/pin/done', { replace: true });
+    navigate('/pin/review', {
+      replace: true,
+      state: {
+        reviewData: {
+          completed: true,
+          result: data.result,
+          careerCoach: data.careerCoach,
+          liveMetrics: data.liveMetrics,
+          metricsHistory: data.metricsHistory,
+          answers: data.answers,
+        },
+      },
+    });
   }, [navigate]);
 
   const loadSession = useCallback(async () => {
     const { data } = await pinApi.get('/candidate/session');
     if (data.completed) {
-      navigate('/pin/done', { replace: true });
+      navigate('/pin/review', { replace: true });
       return;
     }
     if (data.cvRequired || data.candidate?.status === 'pending' || !data.candidate?.cvFileUrl) {

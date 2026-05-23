@@ -33,9 +33,21 @@ export default function PinCoding() {
   const finish = async () => {
     setBusy(true);
     try {
-      await pinApi.post('/candidate/complete-interview');
+      const { data } = await pinApi.post('/candidate/complete-interview');
       sessionStorage.setItem('lumora_candidate_status', 'completed');
-      navigate('/pin/done', { replace: true });
+      navigate('/pin/review', {
+        replace: true,
+        state: {
+          reviewData: {
+            completed: true,
+            result: data.result,
+            careerCoach: data.careerCoach,
+            liveMetrics: data.liveMetrics,
+            metricsHistory: data.metricsHistory,
+            answers: data.answers,
+          },
+        },
+      });
     } catch (err) {
       setError(err.response?.data?.message || err.message);
     } finally {

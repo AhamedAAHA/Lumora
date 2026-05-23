@@ -59,7 +59,7 @@ export function clearPinAuth() {
 export function routeByPinStatus(candidate, navigate) {
   const status = typeof candidate === 'string' ? candidate : candidate?.status;
   const hasCv = typeof candidate === 'object' && candidate?.cvFileUrl;
-  if (status === 'completed') navigate('/pin/done', { replace: true });
+  if (status === 'completed') navigate('/pin/review', { replace: true });
   else if (status === 'interview_started' && hasCv) navigate('/pin/interview', { replace: true });
   else navigate('/pin/cv', { replace: true });
 }

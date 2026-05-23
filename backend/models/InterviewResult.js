@@ -28,6 +28,25 @@ const interviewResultSchema = new mongoose.Schema(
     finalFeedback: { type: String },
     cvSummary: { type: String },
     answersSummary: [mongoose.Schema.Types.Mixed],
+    /** Snapshot from interview live analytics */
+    liveMetrics: {
+      confidence: { type: Number, default: 0 },
+      communication: { type: Number, default: 0 },
+      speaking: { type: Number, default: 0 },
+      wpm: { type: Number, default: 0 },
+      fillers: { type: Number, default: 0 },
+    },
+    metricsHistory: [
+      {
+        confidence: Number,
+        communication: Number,
+        speaking: Number,
+        score: Number,
+        wpm: Number,
+        fillers: Number,
+        at: { type: Date, default: Date.now },
+      },
+    ],
   },
   { timestamps: true }
 );

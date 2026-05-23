@@ -495,7 +495,43 @@ router.get('/interviews/:id/report', protect, authorize('admin'), async (req, re
     answers,
     result: result || null,
     partial: !result && answers.length > 0,
+    liveMetrics: result?.liveMetrics || candidate?.liveMetrics || null,
+    metricsHistory: result?.metricsHistory?.length
+      ? result.metricsHistory
+      : candidate?.metricsHistory || [],
   });
+});
+
+// ─── Candidate: post-interview review ───────────────────────────────────────
+
+router.get('/candidate/review', protectCandidate, async (req, res) => {
+  try {
+    const interview = await Interview.findById(req.candidate.interviewId);
+    if (!interview) return res.status(404).json({ message: 'Interview not found' });
+
+    const answers = await CandidateAnswer.find({
+      interviewId: interview._id,
+      candidateId: req.candidate._id,
+    }).sort({ createdAt: 1 });
+
+    const result = await InterviewResult.findOne({ interviewId: interview._id });
+    const completed = req.candidate.status === 'completed';
+
+    res.json({
+      completed,
+      interview: formatInterview(interview),
+      candidate: formatCandidate(req.candidate),
+      answers,
+      result: result || null,
+      liveMetrics: result?.liveMetrics || req.candidate.liveMetrics || null,
+      metricsHistory: result?.metricsHistory?.length
+        ? result.metricsHistory
+        : req.candidate.metricsHistory || [],
+      partial: !completed && answers.length > 0,
+    });
+  } catch (err) {
+    return sendRouteError(res, err);
+  }
 });
 
 // ─── Candidate: PIN ───────────────────────────────────────────────────────────
@@ -910,7 +946,15 @@ router.post('/candidate/submit-answer', protectCandidate, async (req, res) => {
       return res.json(finalizePayload(req, interview));
     }
 
-    const metrics = req.body.metrics || {};
+    const rawMetrics = req.body.metrics || {};
+    const metrics = {
+      confidence: Number(rawMetrics.confidence) || 0,
+      communication: Number(rawMetrics.communication) || 0,
+      speaking: Number(rawMetrics.speaking) || 0,
+      wpm: Number(rawMetrics.wpm) || 0,
+      fillers: Number(rawMetrics.fillers) || 0,
+      responseTimeMs: Number(rawMetrics.responseMs ?? rawMetrics.responseTimeMs) || 0,
+    };
     let evaluation;
     try {
       evaluation = await evaluateAnswer(current.text, answerText, {
@@ -949,6 +993,8 @@ router.post('/candidate/submit-answer', protectCandidate, async (req, res) => {
         communication: metrics.communication,
         speaking: metrics.speaking,
         score: evaluation.score,
+        wpm: metrics.wpm,
+        fillers: metrics.fillers,
         at: new Date(),
       });
     }
@@ -1075,6 +1121,23 @@ router.post('/candidate/complete-interview', protectCandidate, async (req, res) 
           score: a.aiScore,
           feedback: a.aiFeedback,
           type: a.questionType,
+          metrics: a.metrics,
+        })),
+        liveMetrics: req.candidate.liveMetrics || {
+          confidence: 0,
+          communication: 0,
+          speaking: 0,
+          wpm: 0,
+          fillers: 0,
+        },
+        metricsHistory: (req.candidate.metricsHistory || []).map((h) => ({
+          confidence: h.confidence,
+          communication: h.communication,
+          speaking: h.speaking,
+          score: h.score,
+          wpm: h.wpm,
+          fillers: h.fillers,
+          at: h.at || new Date(),
         })),
       },
       { upsert: true, new: true }
@@ -1103,7 +1166,21 @@ router.post('/candidate/complete-interview', protectCandidate, async (req, res) 
       });
     }
 
-    res.json({ completed: true, result, careerCoach: report.careerCoach });
+    res.json({
+      completed: true,
+      result,
+      careerCoach: report.careerCoach,
+      liveMetrics: result.liveMetrics,
+      metricsHistory: result.metricsHistory,
+      answers: answers.map((a) => ({
+        questionText: a.questionText,
+        candidateAnswer: a.candidateAnswer,
+        aiScore: a.aiScore,
+        aiFeedback: a.aiFeedback,
+        questionType: a.questionType,
+        metrics: a.metrics,
+      })),
+    });
   } catch (err) {
     res.status(500).json({ message: err.message });
   }

@@ -17,6 +17,7 @@ const PinCvUpload = lazy(() => import('./pages/pin/PinCvUpload'));
 const PinInterview = lazy(() => import('./pages/pin/PinInterview'));
 const PinCoding = lazy(() => import('./pages/pin/PinCoding'));
 const PinCompleted = lazy(() => import('./pages/pin/PinCompleted'));
+const PinReview = lazy(() => import('./pages/pin/PinReview'));
 
 function PageLoader() {
   return (
@@ -56,6 +57,7 @@ export default function App() {
         <Route path="/pin/cv" element={<PinCvUpload />} />
         <Route path="/pin/interview" element={<PinInterview />} />
         <Route path="/pin/coding" element={<PinCoding />} />
+        <Route path="/pin/review" element={<PinReview />} />
         <Route path="/pin/done" element={<PinCompleted />} />
 
         {/* Old URLs */}

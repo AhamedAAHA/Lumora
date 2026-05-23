@@ -1,21 +1,24 @@
-import { Link } from 'react-router-dom';
-import { CheckCircle2 } from 'lucide-react';
+import { useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import AuthLayout from '../../layouts/AuthLayout';
-import { clearPinAuth } from '../../lib/pinApi';
+import { getPinToken } from '../../lib/pinApi';
 
+/** Legacy route — redirects to review results */
 export default function PinCompleted() {
-  const done = () => clearPinAuth();
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    if (getPinToken()) {
+      navigate('/pin/review', { replace: true });
+    } else {
+      navigate('/', { replace: true });
+    }
+  }, [navigate]);
 
   return (
-    <AuthLayout title="Interview complete" subtitle="Thank you — your responses were recorded" showCta={false}>
-      <div className="slide-up mt-6 flex flex-col items-center text-center">
-        <CheckCircle2 className="h-14 w-14 text-emerald-400" />
-        <p className="mt-4 text-sm text-white/55">
-          This PIN cannot be used again. Your recruiter will review your AI evaluation report.
-        </p>
-        <Link to="/" className="btn-primary btn-3d mt-8 w-full text-center !rounded-xl" onClick={done}>
-          Done
-        </Link>
+    <AuthLayout title="Loading results…" showCta={false}>
+      <div className="flex justify-center py-12">
+        <div className="loading-spinner" />
       </div>
     </AuthLayout>
   );

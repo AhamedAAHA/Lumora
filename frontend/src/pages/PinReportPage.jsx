@@ -1,7 +1,8 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { ArrowLeft } from 'lucide-react';
+import { ArrowLeft, RefreshCw } from 'lucide-react';
 import AppShell from '../layouts/AppShell';
+import ReportAnalytics from '../components/interview/ReportAnalytics';
 import api from '../lib/api';
 import { langFontClass, LANG_LABELS } from '../lib/langUtils';
 
@@ -9,6 +10,7 @@ function AnswerBlock({ answer, lang }) {
   const font = langFontClass(answer.answerLanguage || lang);
   const showTranslation =
     answer.answerLanguage && answer.answerLanguage !== 'en' && answer.answerEnglish;
+  const m = answer.metrics;
 
   return (
     <li className="rounded-xl border border-white/10 bg-black/25 p-4">
@@ -25,6 +27,13 @@ function AnswerBlock({ answer, lang }) {
         <p className="mt-2 text-sm text-white/55">
           <span className="text-white/35">English: </span>
           {answer.answerEnglish}
+        </p>
+      )}
+      {m && (
+        <p className="mt-2 text-[11px] text-cyan-200/70">
+          Live metrics: {m.confidence}% confidence · {m.communication}% communication · {m.wpm || '—'} WPM ·{' '}
+          {m.fillers ?? 0} fillers
+          {m.responseTimeMs ? ` · ${Math.round(m.responseTimeMs / 1000)}s response` : ''}
         </p>
       )}
       {answer.aiScore != null && (
@@ -47,16 +56,33 @@ export default function PinReportPage() {
   const { interviewId } = useParams();
   const [data, setData] = useState(null);
   const [error, setError] = useState('');
+  const [refreshing, setRefreshing] = useState(false);
+
+  const loadReport = useCallback(async () => {
+    try {
+      const res = await api.get(`/interviews/${interviewId}/report`);
+      setData(res.data);
+      setError('');
+    } catch (err) {
+      setError(err.response?.data?.message || err.message);
+    }
+  }, [interviewId]);
 
   useEffect(() => {
-    api
-      .get(`/interviews/${interviewId}/report`)
-      .then((res) => {
-        setData(res.data);
-        setError('');
-      })
-      .catch((err) => setError(err.response?.data?.message || err.message));
-  }, [interviewId]);
+    loadReport();
+  }, [loadReport]);
+
+  useEffect(() => {
+    if (!data?.partial) return undefined;
+    const timer = window.setInterval(loadReport, 5000);
+    return () => window.clearInterval(timer);
+  }, [data?.partial, loadReport]);
+
+  const manualRefresh = async () => {
+    setRefreshing(true);
+    await loadReport();
+    setRefreshing(false);
+  };
 
   const r = data?.result;
   const iv = data?.interview;
@@ -65,19 +91,42 @@ export default function PinReportPage() {
 
   return (
     <AppShell title="Interview Report" subtitle={iv?.title || 'PIN interview results'}>
-      <Link to="/admin" className="mb-5 inline-flex items-center gap-2 text-sm text-white/55 hover:text-white">
-        <ArrowLeft className="h-4 w-4" /> Back to admin
-      </Link>
+      <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
+        <Link to="/admin" className="inline-flex items-center gap-2 text-sm text-white/55 hover:text-white">
+          <ArrowLeft className="h-4 w-4" /> Back to admin
+        </Link>
+        {data?.partial && (
+          <button
+            type="button"
+            onClick={manualRefresh}
+            disabled={refreshing}
+            className="btn-secondary inline-flex items-center gap-2 text-sm"
+          >
+            <RefreshCw className={`h-4 w-4 ${refreshing ? 'animate-spin' : ''}`} />
+            Refresh live
+          </button>
+        )}
+      </div>
+
       {error && !data && (
         <p className="rounded-xl border border-red-500/30 bg-red-500/10 p-4 text-sm text-red-200">{error}</p>
       )}
+
       {data?.partial && !r && (
         <p className="mb-4 rounded-xl border border-amber-500/30 bg-amber-500/10 p-4 text-sm text-amber-100">
-          Interview in progress — partial answers shown. Full scores appear after completion.
+          Interview in progress — live analytics refresh every 5 seconds. Full AI scores appear after completion.
         </p>
       )}
-      {(r || answers.length > 0) && (
+
+      {(r || answers.length > 0 || data?.metricsHistory?.length > 0) && (
         <div className="page-fade space-y-5">
+          <ReportAnalytics
+            liveMetrics={data?.liveMetrics}
+            metricsHistory={data?.metricsHistory}
+            result={r}
+            partial={data?.partial}
+          />
+
           {r && (
             <div className="os-card card-3d p-6">
               <p className="text-xs uppercase tracking-[0.2em] text-white/35">Overall</p>
@@ -91,11 +140,35 @@ export default function PinReportPage() {
               )}
             </div>
           )}
+
           {r && (
-            <div className="grid gap-4 md:grid-cols-3">
+            <div className="grid gap-4 md:grid-cols-4">
               <div className="os-card p-4">Technical: {r.technicalScore}%</div>
               <div className="os-card p-4">Communication: {r.communicationScore}%</div>
               <div className="os-card p-4">Confidence: {r.confidenceScore}%</div>
+              <div className="os-card p-4">Speaking: {r.speakingScore}%</div>
+            </div>
+          )}
+
+          {r?.strengths?.length > 0 && (
+            <div className="os-card p-5">
+              <h3 className="font-semibold text-emerald-300">Strengths</h3>
+              <ul className="mt-2 list-inside list-disc text-sm text-white/65">
+                {r.strengths.map((s) => (
+                  <li key={s}>{s}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {r?.weaknesses?.length > 0 && (
+            <div className="os-card p-5">
+              <h3 className="font-semibold text-amber-200/90">Weaknesses</h3>
+              <ul className="mt-2 list-inside list-disc text-sm text-white/65">
+                {r.weaknesses.map((w) => (
+                  <li key={w}>{w}</li>
+                ))}
+              </ul>
             </div>
           )}
 
@@ -110,7 +183,7 @@ export default function PinReportPage() {
           <div className="os-card p-5">
             <h3 className="font-semibold text-white">Candidate answers ({answers.length})</h3>
             <p className="mt-1 text-sm text-white/45">
-              Original answers with English translation when Tamil or Sinhala was used.
+              Includes per-answer live metrics captured during the interview.
             </p>
             {answers.length === 0 ? (
               <p className="mt-4 text-sm text-white/40">No answers recorded yet.</p>

@@ -26,7 +26,7 @@ export default function PinCvUpload() {
       .get('/candidate/session')
       .then(({ data }) => {
         if (data.completed) {
-          navigate('/pin/done', { replace: true });
+          navigate('/pin/review', { replace: true });
           return;
         }
         if (data.interview?.title) setInterviewTitle(data.interview.title);
