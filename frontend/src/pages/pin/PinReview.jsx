@@ -88,6 +88,13 @@ export default function PinReview() {
           </p>
         </div>
 
+        {result?.sessionQuality?.sessionInvalid && (
+          <p className="rounded-xl border border-red-500/35 bg-red-500/10 px-4 py-3 text-sm text-red-200">
+            Most answers were too short, placeholder text, or not related to the questions. Scores reflect
+            answer quality — use real, detailed responses in a new interview for an accurate evaluation.
+          </p>
+        )}
+
         {result ? (
           <div className="glass-card glow-border p-6 text-center">
             <p className="text-xs uppercase tracking-[0.2em] text-white/40">Overall score</p>

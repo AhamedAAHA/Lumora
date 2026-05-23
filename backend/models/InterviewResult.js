@@ -47,6 +47,13 @@ const interviewResultSchema = new mongoose.Schema(
         at: { type: Date, default: Date.now },
       },
     ],
+    sessionQuality: {
+      avgSubstance: { type: Number, default: 0 },
+      avgAiScore: { type: Number, default: 0 },
+      insufficientCount: { type: Number, default: 0 },
+      validCount: { type: Number, default: 0 },
+      sessionInvalid: { type: Boolean, default: false },
+    },
   },
   { timestamps: true }
 );

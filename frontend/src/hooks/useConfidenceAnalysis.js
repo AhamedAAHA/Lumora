@@ -2,10 +2,24 @@ import { useCallback, useRef, useState } from 'react';
 
 const FILLERS = ['um', 'uh', 'like', 'you know', 'actually', 'basically', 'sort of', 'kind of'];
 
+const PLACEHOLDER_RE =
+  /^(test|fake|asdf|qwerty|nothing|idk|n\/a|ok|okay|yes|no|hello|hi|skip|pass|blah|dummy|random|sample|fake thing)$/i;
+
+function isLowQualityAnswer(text) {
+  const trimmed = text.trim();
+  if (!trimmed) return true;
+  const words = trimmed.split(/\s+/).filter(Boolean);
+  if (words.length < 8) return true;
+  if (PLACEHOLDER_RE.test(trimmed.replace(/[^\w\s]/g, '').trim())) return true;
+  if (/^(\w+)\s+\1\s+\1/i.test(trimmed.toLowerCase())) return true;
+  return false;
+}
+
 function computeMetrics(text, responseTimeMs) {
   const words = text.trim().split(/\s+/).filter(Boolean);
   const wordCount = words.length;
   const lower = text.toLowerCase();
+  const lowQuality = isLowQualityAnswer(text);
   const fillerCount = FILLERS.reduce(
     (acc, f) => acc + (lower.match(new RegExp(`\\b${f}\\b`, 'g'))?.length || 0),
     0
@@ -14,20 +28,26 @@ function computeMetrics(text, responseTimeMs) {
   const hesitation = (text.match(/\.\.\.|—|-/g) || []).length;
 
   let confidence = 70;
-  if (wordCount < 15) confidence -= 15;
-  if (fillerCount > 3) confidence -= 10;
-  if (wpm > 0 && (wpm < 80 || wpm > 200)) confidence -= 8;
-  if (hesitation > 2) confidence -= 5;
-  if (wordCount > 40 && fillerCount < 2) confidence += 12;
-  if (wordCount === 0) confidence = 68;
-  confidence = Math.max(20, Math.min(98, confidence));
+  if (wordCount === 0) confidence = 5;
+  else if (lowQuality) confidence = 12;
+  else if (wordCount < 15) confidence = 28;
+  else if (wordCount < 25) confidence = 45;
+  if (!lowQuality && fillerCount > 3) confidence -= 10;
+  if (!lowQuality && wpm > 0 && (wpm < 80 || wpm > 200)) confidence -= 8;
+  if (!lowQuality && hesitation > 2) confidence -= 5;
+  if (!lowQuality && wordCount > 40 && fillerCount < 2) confidence += 12;
+  confidence = Math.max(5, Math.min(98, confidence));
 
-  const communication = Math.max(
-    25,
+  let communication = Math.max(
+    5,
     Math.min(98, confidence + (wordCount > 25 ? 5 : wordCount > 0 ? -8 : 0) - fillerCount * 2)
   );
-  const speaking = Math.max(25, Math.min(98, 100 - fillerCount * 4 - hesitation * 3));
-  const clarity = Math.max(25, Math.min(98, communication - Math.max(0, fillerCount - 1) * 3));
+  let speaking = Math.max(5, Math.min(98, 100 - fillerCount * 4 - hesitation * 3));
+  if (lowQuality) {
+    communication = Math.min(communication, 18);
+    speaking = Math.min(speaking, 22);
+  }
+  const clarity = Math.max(5, Math.min(98, communication - Math.max(0, fillerCount - 1) * 3));
 
   return {
     confidence: Math.round(confidence),

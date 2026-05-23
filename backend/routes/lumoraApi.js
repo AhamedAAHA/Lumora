@@ -54,6 +54,7 @@ const {
   pickEnum,
   mapPinRecommendation,
 } = require('../utils/validateInterview');
+const { assessAnswerQuality } = require('../utils/answerQuality');
 
 function sendRouteError(res, err) {
   if (err.name === 'ValidationError') {
@@ -966,15 +967,26 @@ router.post('/candidate/submit-answer', protectCandidate, async (req, res) => {
         metrics,
       });
     } catch {
-      const words = answerText.trim().split(/\s+/).filter(Boolean).length;
+      const quality = assessAnswerQuality(answerText, current.text);
       evaluation = {
-        score: words < 15 ? 4 : words < 40 ? 6 : 8,
-        feedback: 'Answer recorded.',
+        score: quality.maxScore10,
+        feedback: quality.feedback,
         conversationalComment: 'Thank you. Let us continue.',
         needsFollowUp: false,
         followUpQuestion: '',
         nextDifficulty: req.candidate.difficulty || 'medium',
       };
+    }
+
+    const answerQuality = assessAnswerQuality(answerText, current.text);
+    if (answerQuality.isInsufficient) {
+      metrics.confidence = Math.min(metrics.confidence || 100, 25);
+      metrics.communication = Math.min(metrics.communication || 100, 22);
+      metrics.speaking = Math.min(metrics.speaking || 100, 28);
+    } else if (answerQuality.substance < 50) {
+      metrics.confidence = Math.min(metrics.confidence || 100, 45);
+      metrics.communication = Math.min(metrics.communication || 100, 42);
+      metrics.speaking = Math.min(metrics.speaking || 100, 50);
     }
 
     req.candidate.difficulty = evaluation.nextDifficulty || req.candidate.difficulty;
@@ -1114,6 +1126,13 @@ router.post('/candidate/complete-interview', protectCandidate, async (req, res) 
         language: report.language,
         personality: report.personality,
         round: report.round,
+        sessionQuality: report.sessionQuality || {
+          avgSubstance: 0,
+          avgAiScore: 0,
+          insufficientCount: 0,
+          validCount: 0,
+          sessionInvalid: false,
+        },
         cvSummary: req.candidate.cvSummary,
         answersSummary: answers.map((a) => ({
           question: a.questionText,
