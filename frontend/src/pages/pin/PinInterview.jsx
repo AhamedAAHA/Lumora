@@ -12,7 +12,8 @@ import { useVoiceInput } from '../../hooks/useVoiceInput';
 import { useQuestionAudio } from '../../hooks/useQuestionAudio';
 import pinApi, { getPinToken, clearPinAuth } from '../../lib/pinApi';
 import LumoraBackground from '../../components/LumoraBackground';
-import { langFontClass } from '../../lib/langUtils';
+import { langFontClass, LANG_LABELS } from '../../lib/langUtils';
+import { isMobileDevice, unlockAudioPlayback } from '../../lib/deviceUtils';
 
 export default function PinInterview() {
   const navigate = useNavigate();
@@ -28,7 +29,11 @@ export default function PinInterview() {
   const [submitting, setSubmitting] = useState(false);
   const [voiceHint, setVoiceHint] = useState('');
   const voicePlayedRef = useRef('');
-  const { scores, history, analyzeAnswer, startTimer, getElapsed } = useConfidenceAnalysis();
+  const mobileAudio = useMemo(() => isMobileDevice(), []);
+  const { scores, live, history, analyzeLive, analyzeAnswer, hydrateHistory, startTimer, getElapsed } =
+    useConfidenceAnalysis();
+  const [lastScore, setLastScore] = useState(null);
+  const metricsHydratedRef = useRef(false);
   const lang = session?.candidate?.language || session?.interview?.language || 'en';
   const personality = session?.interview?.personality || session?.candidate?.personality || 'friendly_hr';
   const { listening, voiceError, toggleListening, recording } = useVoiceInput(lang);
@@ -103,7 +108,26 @@ export default function PinInterview() {
         : data.progress,
     });
     setQuestion(data.currentQuestion);
-  }, [navigate, finishInterview]);
+    if (data.metricsHistory?.length && !metricsHydratedRef.current) {
+      hydrateHistory(data.metricsHistory);
+      metricsHydratedRef.current = true;
+    }
+  }, [navigate, finishInterview, hydrateHistory]);
+
+  useEffect(() => {
+    if (question?.text) {
+      startTimer();
+    }
+  }, [question?.text, startTimer]);
+
+  useEffect(() => {
+    const trimmed = answer.trim();
+    if (!trimmed) return undefined;
+    const timer = window.setTimeout(() => {
+      analyzeLive(trimmed, getElapsed());
+    }, 200);
+    return () => window.clearTimeout(timer);
+  }, [answer, analyzeLive, getElapsed]);
 
   useEffect(() => {
     if (!getPinToken()) {
@@ -113,30 +137,44 @@ export default function PinInterview() {
     loadSession().catch(() => navigate('/pin/cv', { replace: true }));
   }, [navigate, loadSession]);
 
-  const playVoice = useCallback(async () => {
-    if (!question?.text) return;
-    setSpeaking(true);
-    setVoiceHint('');
-    stopQuestionAudio();
-    try {
-      const result = await playQuestionAudio(question.text);
-      if (!result.ok) {
-        setVoiceHint('Read the question below, or click Play question again.');
+  const playVoice = useCallback(
+    async (fromUserTap = false) => {
+      if (!question?.text) return;
+      if (fromUserTap) await unlockAudioPlayback();
+      setSpeaking(true);
+      if (!fromUserTap) setVoiceHint('');
+      stopQuestionAudio();
+      try {
+        const result = await playQuestionAudio(question.text, { userGesture: fromUserTap || !mobileAudio });
+        if (!result.ok) {
+          setVoiceHint(
+            result.needsUserGesture
+              ? 'Tap "Play question" to hear the question (required on phones).'
+              : 'Read the question below, or tap Play question again.'
+          );
+        } else {
+          setVoiceHint('');
+        }
+      } catch {
+        setVoiceHint('Tap "Play question" to hear the question, or read it below.');
+      } finally {
+        setSpeaking(false);
       }
-    } catch {
-      setVoiceHint('Read the question below, or click Play question again.');
-    } finally {
-      setSpeaking(false);
-    }
-  }, [question?.text, playQuestionAudio, stopQuestionAudio]);
+    },
+    [question?.text, playQuestionAudio, stopQuestionAudio, mobileAudio]
+  );
 
   useEffect(() => {
     const q = question?.text;
     if (!q || voicePlayedRef.current === q) return;
     voicePlayedRef.current = q;
-    playVoice();
+    if (mobileAudio) {
+      setVoiceHint('Tap "Play question" to hear the question in your language.');
+      return undefined;
+    }
+    playVoice(false);
     return () => stopQuestionAudio();
-  }, [question?.text, playVoice, stopQuestionAudio]);
+  }, [question?.text, playVoice, stopQuestionAudio, mobileAudio]);
 
   const submitAnswer = async () => {
     if (!answer.trim() || submitting || submitLockRef.current) return;
@@ -153,6 +191,7 @@ export default function PinInterview() {
       plannedTotalRef.current = fixedTotal;
       const answeredSoFar = answeredCountRef.current;
 
+      if (data.evaluation?.score != null) setLastScore(data.evaluation.score);
       setFeedback(
         data.evaluation?.feedback ? `Score ${data.evaluation.score}/10 - ${data.evaluation.feedback}` : ''
       );
@@ -193,18 +232,16 @@ export default function PinInterview() {
     }
   };
 
-  const analyticsScores = useMemo(
-    () => ({
-      confidence: session?.liveMetrics?.confidence ?? scores.confidence ?? 72,
-      communication: session?.liveMetrics?.communication ?? scores.communication ?? 72,
-      speaking: session?.liveMetrics?.speaking ?? scores.speaking ?? 70,
-    }),
-    [session?.liveMetrics, scores]
-  );
-
   const analyticsHistory = useMemo(
-    () => (session?.metricsHistory?.length ? session.metricsHistory : history),
-    [session?.metricsHistory, history]
+    () =>
+      history.map((h, i) => ({
+        confidence: h.confidence,
+        communication: h.communication,
+        speaking: h.speaking,
+        score: h.score,
+        label: `Q${i + 1}`,
+      })),
+    [history]
   );
 
   const progress = useMemo(() => {
@@ -270,7 +307,9 @@ export default function PinInterview() {
               personality={session.candidate?.personality || session.interview?.personality}
             />
             <div className={`mt-6 flex-1 md:mt-0 ${qFont}`}>
-              <p className="text-xs text-cyan-300/60 capitalize">{question.type} question</p>
+              <p className="text-xs text-cyan-300/60 capitalize">
+                {question.type} question · {LANG_LABELS[lang] || 'English'}
+              </p>
               <p className="mt-2 text-lg leading-relaxed text-white/95">{question.text}</p>
               {voiceHint && (
                 <p className="mt-2 rounded-lg border border-cyan-500/20 bg-cyan-500/10 px-3 py-2 text-sm text-cyan-100/90">
@@ -282,7 +321,7 @@ export default function PinInterview() {
               )}
               <button
                 type="button"
-                onClick={playVoice}
+                onClick={() => playVoice(true)}
                 className="btn-secondary btn-3d mt-4 inline-flex items-center gap-2 text-sm"
               >
                 <Volume2 className="h-4 w-4" />
@@ -299,7 +338,10 @@ export default function PinInterview() {
               toggleListening(
                 (transcript) => {
                   const next = transcript.trim();
-                  if (next) setAnswer(next);
+                  if (next) {
+                    setAnswer(next);
+                    analyzeLive(next, getElapsed());
+                  }
                   startTimer();
                 },
                 (liveText) => {
@@ -310,6 +352,7 @@ export default function PinInterview() {
                     !liveText.startsWith('Transcribing')
                   ) {
                     setAnswer(liveText);
+                    analyzeLive(liveText, getElapsed());
                   }
                 }
               )
@@ -334,7 +377,14 @@ export default function PinInterview() {
           {feedback && <p className="text-sm text-indigo-200">{feedback}</p>}
         </div>
 
-        <LiveAnalytics scores={analyticsScores} history={analyticsHistory} progress={progress} />
+        <LiveAnalytics
+          scores={scores}
+          history={analyticsHistory}
+          progress={progress}
+          live={live}
+          listening={listening || recording}
+          avgScore={lastScore}
+        />
       </div>
     </LumoraBackground>
   );

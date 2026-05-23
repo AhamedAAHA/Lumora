@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef } from 'react';
 import pinApi from '../lib/pinApi';
+import { isMobileDevice, unlockAudioPlayback } from '../lib/deviceUtils';
 import { speakWithBrowser, stopBrowserSpeech, warmBrowserVoices } from '../lib/speech';
 
 function resolveAudioUrl(audioUrl, apiBaseUrl) {
@@ -8,6 +9,14 @@ function resolveAudioUrl(audioUrl, apiBaseUrl) {
   }
 
   return new URL(audioUrl, new URL(apiBaseUrl).origin).toString();
+}
+
+function createAudioElement(url) {
+  const audio = new Audio(url);
+  audio.setAttribute('playsinline', 'true');
+  audio.setAttribute('webkit-playsinline', 'true');
+  audio.preload = 'auto';
+  return audio;
 }
 
 /**
@@ -35,8 +44,12 @@ export function useQuestionAudio({
   }, []);
 
   const play = useCallback(
-    async (text) => {
-      if (!text?.trim()) return { ok: false, source: 'none' };
+    async (text, { userGesture = false } = {}) => {
+      if (!text?.trim()) return { ok: false, source: 'none', needsUserGesture: false };
+
+      if (userGesture) {
+        await unlockAudioPlayback();
+      }
 
       stop();
 
@@ -49,25 +62,39 @@ export function useQuestionAudio({
 
         if (data.audioUrl && !data.fallback) {
           const url = resolveAudioUrl(data.audioUrl, http.defaults?.baseURL);
-
-          const audio = new Audio(url);
+          const audio = createAudioElement(url);
           audioRef.current = audio;
 
-          await new Promise((resolve, reject) => {
-            audio.onended = () => resolve();
-            audio.onerror = () => reject(new Error('audio-playback'));
-            audio.play().catch(reject);
-          });
-          return { ok: true, source: 'api' };
+          try {
+            await new Promise((resolve, reject) => {
+              audio.onended = () => resolve();
+              audio.onerror = () => reject(new Error('audio-playback'));
+              audio.play().catch(reject);
+            });
+            return { ok: true, source: 'api', needsUserGesture: false };
+          } catch (playErr) {
+            if (playErr?.name === 'NotAllowedError' || playErr?.message === 'audio-playback') {
+              if (!isMobileDevice()) {
+                const spoke = await speakWithBrowser(text, language);
+                if (spoke) return { ok: true, source: 'browser', needsUserGesture: false };
+              }
+              return { ok: false, source: 'api', needsUserGesture: true };
+            }
+          }
         }
       } catch {
         // fall through to browser TTS
       }
 
-      const spoke = await speakWithBrowser(text, language);
-      if (spoke) return { ok: true, source: 'browser' };
+      const needsGestureForTts = isMobileDevice() && !userGesture;
+      if (needsGestureForTts) {
+        return { ok: false, source: 'none', needsUserGesture: true };
+      }
 
-      return { ok: false, source: 'none' };
+      const spoke = await speakWithBrowser(text, language);
+      if (spoke) return { ok: true, source: 'browser', needsUserGesture: false };
+
+      return { ok: false, source: 'none', needsUserGesture: !userGesture };
     },
     [language, personality, stop, http, endpoint]
   );

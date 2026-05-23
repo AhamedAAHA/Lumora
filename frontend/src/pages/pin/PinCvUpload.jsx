@@ -15,6 +15,7 @@ export default function PinCvUpload() {
   const [interviewTitle, setInterviewTitle] = useState('');
   const [language, setLanguage] = useState('en');
   const [personality, setPersonality] = useState('friendly_hr');
+  const [languageDirty, setLanguageDirty] = useState(false);
 
   useEffect(() => {
     if (!getPinToken()) {
@@ -44,8 +45,27 @@ export default function PinCvUpload() {
       .catch(() => navigate('/pin', { replace: true }));
   }, [navigate]);
 
-  const savePrefs = async () => {
-    await pinApi.post('/candidate/configure', { language, personality });
+  const savePrefs = async (overrides = {}) => {
+    const lang = overrides.language ?? language;
+    const pers = overrides.personality ?? personality;
+    await pinApi.post('/candidate/configure', { language: lang, personality: pers });
+    setLanguage(lang);
+    setPersonality(pers);
+    setLanguageDirty(false);
+  };
+
+  const onLanguageChange = async (nextLang) => {
+    setLanguage(nextLang);
+    if (ready) {
+      setLanguageDirty(true);
+      setReady(false);
+      setError('Language changed — click Generate AI questions again so questions match your language.');
+    }
+    try {
+      await pinApi.post('/candidate/configure', { language: nextLang, personality });
+    } catch {
+      // saved on next upload/generate
+    }
   };
 
   const upload = async (file) => {
@@ -73,9 +93,10 @@ export default function PinCvUpload() {
     setError('');
     try {
       await savePrefs();
-      const { data } = await pinApi.post('/candidate/generate-cv-questions');
+      const { data } = await pinApi.post('/candidate/generate-cv-questions', { language });
       sessionStorage.setItem('lumora_candidate_status', 'cv_uploaded');
       setReady(true);
+      setLanguageDirty(false);
       if (data.count) setSummary((s) => `${s}\n\n${data.count} AI questions ready.`);
     } catch (err) {
       setError(err.response?.data?.message || err.message);
@@ -87,6 +108,11 @@ export default function PinCvUpload() {
   const startInterview = async () => {
     setBusy('start');
     try {
+      await savePrefs();
+      if (languageDirty) {
+        setError('Generate AI questions in your selected language before starting.');
+        return;
+      }
       await pinApi.post('/candidate/start-interview');
       sessionStorage.setItem('lumora_candidate_status', 'interview_started');
       navigate('/pin/interview', { replace: true });
@@ -115,7 +141,7 @@ export default function PinCvUpload() {
             Interview language
             <select
               value={language}
-              onChange={(e) => setLanguage(e.target.value)}
+              onChange={(e) => onLanguageChange(e.target.value)}
               className={`mono-select mt-2 h-11 w-full ${fontClass}`}
             >
               {langSelectOptions().map(([value, label]) => (

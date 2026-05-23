@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import pinApi from '../lib/pinApi';
+import { isMobileDevice, unlockAudioPlayback } from '../lib/deviceUtils';
 import { getSpeechRecognition, isSpeechRecognitionSupported, speechLangCode } from '../lib/speech';
 
 function buildTranscriptFromResults(results) {
@@ -12,14 +13,39 @@ function buildTranscriptFromResults(results) {
   return parts.join(' ').replace(/\s+/g, ' ').trim();
 }
 
+function blobExtension(blob) {
+  const type = blob.type || '';
+  if (type.includes('mp4') || type.includes('m4a')) return 'mp4';
+  if (type.includes('ogg')) return 'ogg';
+  if (type.includes('wav')) return 'wav';
+  return 'webm';
+}
+
+/** Desktop: browser SR first (reliable on laptop). Mobile + ta/si: Whisper recording first. */
+function pickVoiceStrategy(language, serverTranscription, browserSr) {
+  if (!serverTranscription) {
+    return browserSr ? 'browser' : 'none';
+  }
+  if (language === 'ta' || language === 'si') {
+    return 'whisper';
+  }
+  if (isMobileDevice()) {
+    return 'whisper';
+  }
+  if (browserSr) {
+    return 'browser';
+  }
+  return 'whisper';
+}
+
 export function useVoiceInput(language = 'en') {
   const [listening, setListening] = useState(false);
   const [voiceError, setVoiceError] = useState('');
   const [recording, setRecording] = useState(false);
   const [serverTranscription, setServerTranscription] = useState(false);
-  const [inputMode, setInputMode] = useState('browser'); // 'browser' | 'whisper'
-
+  const [inputMode, setInputMode] = useState('browser');
   const recognitionRef = useRef(null);
+  const serverTranscriptionRef = useRef(false);
   const mediaRecorderRef = useRef(null);
   const streamRef = useRef(null);
   const chunksRef = useRef([]);
@@ -28,23 +54,30 @@ export function useVoiceInput(language = 'en') {
   const callbacksRef = useRef({ onFinal: null, onInterim: null });
   const endTimerRef = useRef(null);
   const startBrowserRecognitionRef = useRef(null);
+  const triedEnglishSrRef = useRef(false);
 
   const speechLang = speechLangCode(language);
   const browserSr = isSpeechRecognitionSupported();
 
+  const refreshCapabilities = useCallback(async () => {
+    try {
+      const { data } = await pinApi.get('/voice/capabilities');
+      const whisper = Boolean(data.openaiTranscription);
+      serverTranscriptionRef.current = whisper;
+      setServerTranscription(whisper);
+      setInputMode(pickVoiceStrategy(language, whisper, browserSr));
+      return { whisper, message: data.message };
+    } catch {
+      serverTranscriptionRef.current = false;
+      setServerTranscription(false);
+      setInputMode(browserSr ? 'browser' : 'none');
+      return { whisper: false, message: null };
+    }
+  }, [language, browserSr]);
+
   useEffect(() => {
-    pinApi
-      .get('/voice/capabilities')
-      .then(({ data }) => {
-        const whisper = Boolean(data.openaiTranscription);
-        setServerTranscription(whisper);
-        setInputMode(whisper ? 'whisper' : 'browser');
-      })
-      .catch(() => {
-        setServerTranscription(false);
-        setInputMode('browser');
-      });
-  }, []);
+    refreshCapabilities();
+  }, [refreshCapabilities]);
 
   useEffect(() => {
     return () => {
@@ -91,8 +124,9 @@ export function useVoiceInput(language = 'en') {
     async (blob, onTranscript, onInterim) => {
       setVoiceError('');
       onInterim?.('Transcribing your speech…');
+      const ext = blobExtension(blob);
       const fd = new FormData();
-      fd.append('audio', blob, 'answer.webm');
+      fd.append('audio', blob, `answer.${ext}`);
       fd.append('language', language);
       try {
         const { data } = await pinApi.post('/voice/transcribe', fd);
@@ -117,11 +151,16 @@ export function useVoiceInput(language = 'en') {
   );
 
   const startMediaRecorder = useCallback(
-    async (onTranscript, onInterim) => {
-      if (!serverTranscription) {
+    async (onTranscript, onInterim, { allowWithoutOpenAi = false } = {}) => {
+      const canTranscribe = serverTranscriptionRef.current || serverTranscription;
+      if (!canTranscribe && !allowWithoutOpenAi) {
         setVoiceError(
-          'Add a real OPENAI_API_KEY in backend/.env and restart the server, or use Chrome/Edge for browser voice.'
+          'Add OPENAI_API_KEY in backend/.env (or your hosting dashboard), restart the server, then try again. Chrome/Edge can use free browser voice meanwhile.'
         );
+        return;
+      }
+      if (!canTranscribe) {
+        setVoiceError('Server transcription is not configured yet.');
         return;
       }
 
@@ -140,13 +179,11 @@ export function useVoiceInput(language = 'en') {
         streamRef.current = stream;
         chunksRef.current = [];
 
-        const mime = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
-          ? 'audio/webm;codecs=opus'
-          : MediaRecorder.isTypeSupported('audio/webm')
-            ? 'audio/webm'
-            : MediaRecorder.isTypeSupported('audio/mp4')
-              ? 'audio/mp4'
-              : '';
+        const mobile = isMobileDevice();
+        const mimeCandidates = mobile
+          ? ['audio/mp4', 'audio/webm;codecs=opus', 'audio/webm', 'audio/ogg;codecs=opus', '']
+          : ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4', 'audio/ogg;codecs=opus', ''];
+        const mime = mimeCandidates.find((m) => !m || MediaRecorder.isTypeSupported(m)) || '';
 
         const recorder = mime ? new MediaRecorder(stream, { mimeType: mime }) : new MediaRecorder(stream);
         mediaRecorderRef.current = recorder;
@@ -172,7 +209,7 @@ export function useVoiceInput(language = 'en') {
       } catch (err) {
         setVoiceError(
           err.name === 'NotAllowedError'
-            ? 'Microphone blocked. Click the lock icon in the address bar and allow Microphone.'
+            ? 'Microphone blocked. Allow microphone in browser settings (address bar lock icon on laptop, or Settings → Safari on iPhone).'
             : 'Could not access microphone. Type your answer instead.'
         );
       }
@@ -180,25 +217,40 @@ export function useVoiceInput(language = 'en') {
     [serverTranscription, transcribeBlob]
   );
 
-  const finishBrowserSession = useCallback((onTranscript) => {
-    if (endTimerRef.current) window.clearTimeout(endTimerRef.current);
-    endTimerRef.current = window.setTimeout(() => {
-      const text = (transcriptRef.current || lastHeardRef.current).trim();
-      transcriptRef.current = '';
-      lastHeardRef.current = '';
+  const finishBrowserSession = useCallback(
+    (onTranscript) => {
+      if (endTimerRef.current) window.clearTimeout(endTimerRef.current);
+      endTimerRef.current = window.setTimeout(() => {
+        const text = (transcriptRef.current || lastHeardRef.current).trim();
+        transcriptRef.current = '';
+        lastHeardRef.current = '';
 
-      if (text) {
-        setVoiceError('');
-        onTranscript(text);
-      } else {
+        if (text) {
+          setVoiceError('');
+          onTranscript(text);
+          return;
+        }
+
+        if (
+          serverTranscription &&
+          (language === 'ta' || language === 'si') &&
+          !triedEnglishSrRef.current
+        ) {
+          triedEnglishSrRef.current = true;
+          setVoiceError('Switching to microphone recording for Tamil/Sinhala…');
+          startMediaRecorder(onTranscript, callbacksRef.current.onInterim);
+          return;
+        }
+
         setVoiceError(
           serverTranscription
-            ? 'No speech heard. Click Voice input again — we will record with your microphone (needs OpenAI key).'
-            : 'No speech heard. Allow microphone, speak clearly, wait 2 seconds after speaking, then click Stop. Or add OPENAI_API_KEY in backend/.env.'
+            ? 'No speech heard. Click Voice input again — we will record with your microphone.'
+            : 'No speech heard. Allow microphone, speak clearly, wait 2 seconds after speaking, then click Stop.'
         );
-      }
-    }, 450);
-  }, [serverTranscription]);
+      }, 450);
+    },
+    [serverTranscription, language, startMediaRecorder]
+  );
 
   const startBrowserRecognition = useCallback(
     (onTranscript, onInterim, langOverride) => {
@@ -210,7 +262,7 @@ export function useVoiceInput(language = 'en') {
 
       const rec = new SR();
       rec.lang = langOverride || speechLang;
-      rec.continuous = false;
+      rec.continuous = language === 'ta' || language === 'si';
       rec.interimResults = true;
       rec.maxAlternatives = 1;
 
@@ -219,7 +271,7 @@ export function useVoiceInput(language = 'en') {
       setVoiceError('');
 
       rec.onstart = () => {
-        onInterim?.('🎤 Listening… speak now (stops automatically when you pause).');
+        onInterim?.('🎤 Listening… speak now (click Stop when finished).');
       };
 
       rec.onspeechstart = () => setVoiceError('');
@@ -244,6 +296,11 @@ export function useVoiceInput(language = 'en') {
           }
           recognitionRef.current = null;
           setListening(false);
+          if (serverTranscription) {
+            setVoiceError('Browser does not support this language. Using microphone recording…');
+            startMediaRecorder(onTranscript, onInterim);
+            return;
+          }
           return startBrowserRecognitionRef.current?.(onTranscript, onInterim, 'en-US') || false;
         }
 
@@ -284,7 +341,7 @@ export function useVoiceInput(language = 'en') {
         return false;
       }
     },
-    [speechLang, finishBrowserSession, serverTranscription, startMediaRecorder]
+    [speechLang, language, finishBrowserSession, serverTranscription, startMediaRecorder]
   );
 
   useEffect(() => {
@@ -292,8 +349,9 @@ export function useVoiceInput(language = 'en') {
   }, [startBrowserRecognition]);
 
   const toggleListening = useCallback(
-    (onTranscript, onInterim) => {
+    async (onTranscript, onInterim) => {
       callbacksRef.current = { onFinal: onTranscript, onInterim };
+      triedEnglishSrRef.current = false;
 
       if (recognitionRef.current || recording) {
         stopBrowserRecognition();
@@ -302,17 +360,21 @@ export function useVoiceInput(language = 'en') {
       }
 
       setVoiceError('');
+      await unlockAudioPlayback();
 
       if (!window.isSecureContext) {
-        setVoiceError('Voice input needs http://localhost or HTTPS.');
+        setVoiceError('Voice input needs https:// or http://localhost. Open the site via localhost, not a raw IP address.');
         return;
       }
 
+      await refreshCapabilities();
+
       const onFinal = onTranscript || callbacksRef.current.onFinal;
       const onLive = onInterim || callbacksRef.current.onInterim;
+      const whisper = serverTranscriptionRef.current;
+      const strategy = pickVoiceStrategy(language, whisper, browserSr);
 
-      // Prefer Whisper (microphone record) when OpenAI is configured — most reliable
-      if (inputMode === 'whisper' && serverTranscription) {
+      if (strategy === 'whisper' && whisper) {
         startMediaRecorder(onFinal, onLive);
         return;
       }
@@ -322,18 +384,31 @@ export function useVoiceInput(language = 'en') {
         if (started) return;
       }
 
-      if (serverTranscription) {
+      if (whisper) {
+        startMediaRecorder(onFinal, onLive);
+        return;
+      }
+
+      if (browserSr) {
+        startBrowserRecognition(onFinal, onLive);
+        return;
+      }
+
+      if (navigator.mediaDevices?.getUserMedia) {
+        setVoiceError(
+          'Checking microphone… If this fails, set OPENAI_API_KEY in backend/.env and restart npm run dev (or add it on Render/hosting env vars).'
+        );
         startMediaRecorder(onFinal, onLive);
         return;
       }
 
       setVoiceError(
-        'Voice unavailable. Use Chrome/Edge and allow microphone, or add OPENAI_API_KEY in backend/.env.'
+        'Voice unavailable. Use Chrome or Edge, allow microphone access, and set OPENAI_API_KEY in backend/.env then restart the server.'
       );
     },
     [
-      inputMode,
-      serverTranscription,
+      refreshCapabilities,
+      language,
       browserSr,
       recording,
       stopBrowserRecognition,

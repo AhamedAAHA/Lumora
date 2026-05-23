@@ -22,7 +22,7 @@ export default function InterviewRoom() {
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState('');
   const voicePlayedRef = useRef('');
-  const { scores, history, analyzeAnswer, startTimer, getElapsed } = useConfidenceAnalysis();
+  const { scores, live, history, analyzeLive, analyzeAnswer, startTimer, getElapsed } = useConfidenceAnalysis();
   const lang = session?.language || 'en';
   const { listening, voiceError, setVoiceError, recording, toggleListening } = useVoiceInput(lang);
   const { play: playQuestionAudio, stop: stopQuestionAudio } = useQuestionAudio({
@@ -71,6 +71,17 @@ export default function InterviewRoom() {
       stopQuestionAudio();
     };
   }, [session?.currentQuestion, playQuestionAudio, stopQuestionAudio]);
+
+  useEffect(() => {
+    if (session?.currentQuestion) startTimer();
+  }, [session?.currentQuestion, startTimer]);
+
+  useEffect(() => {
+    const trimmed = answer.trim();
+    if (!trimmed) return undefined;
+    const timer = window.setTimeout(() => analyzeLive(trimmed, getElapsed()), 200);
+    return () => window.clearTimeout(timer);
+  }, [answer, analyzeLive, getElapsed]);
 
   const uploadResume = async (file) => {
     if (!file) return;
@@ -201,7 +212,10 @@ export default function InterviewRoom() {
                   toggleListening(
                     (transcript) => {
                       const next = transcript.trim();
-                      if (next) setAnswer(next);
+                      if (next) {
+                        setAnswer(next);
+                        analyzeLive(next, getElapsed());
+                      }
                       startTimer();
                     },
                     (liveText) => {
@@ -212,6 +226,7 @@ export default function InterviewRoom() {
                         !liveText.startsWith('Transcribing')
                       ) {
                         setAnswer(liveText);
+                        analyzeLive(liveText, getElapsed());
                       }
                     }
                   )
@@ -235,7 +250,13 @@ export default function InterviewRoom() {
               />
             </div>
 
-            <LiveAnalytics scores={scores} history={history.slice(-12)} progress={progress} />
+            <LiveAnalytics
+              scores={scores}
+              history={history}
+              progress={progress}
+              live={live}
+              listening={listening || recording}
+            />
           </div>
         )}
       </div>

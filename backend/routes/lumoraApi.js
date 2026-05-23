@@ -693,7 +693,13 @@ router.post('/candidate/generate-cv-questions', protectCandidate, async (req, re
     req.candidate.currentQuestionIndex = 0;
     req.candidate.plannedQuestionTotal = 0;
     req.candidate.followUpQueue = [];
-    const lang = req.candidate.language || interview.language || 'en';
+    applyCandidatePrefs(req.candidate, req.body);
+    const lang = pickEnum(
+      'language',
+      req.body.language,
+      req.candidate.language || interview.language || 'en'
+    );
+    req.candidate.language = lang;
     const customCount = await getCustomQuestionCount(interview._id);
     const totalQuestionCount = safeAiQuestionCount(interview.aiQuestionCount);
     const aiToGenerate = Math.max(0, totalQuestionCount - customCount);
@@ -731,7 +737,9 @@ router.post('/candidate/configure', protectCandidate, async (req, res) => {
   if (closed) return;
   const interview = await Interview.findById(req.candidate.interviewId);
   applyCandidatePrefs(req.candidate, req.body);
-  req.candidate.language = req.candidate.language || interview.language;
+  if (req.body.language === undefined) {
+    req.candidate.language = req.candidate.language || interview.language;
+  }
   req.candidate.personality = req.candidate.personality || interview.personality;
   req.candidate.round = req.candidate.round || interview.round;
   req.candidate.difficulty = interview.difficulty;
@@ -1249,8 +1257,13 @@ router.post('/voice/generate-question-audio', async (req, res) => {
 });
 
 router.get('/voice/capabilities', (_req, res) => {
+  const openaiTranscription = isOpenAiConfigured();
   res.json({
-    openaiTranscription: isOpenAiConfigured(),
+    openaiTranscription,
+    browserSpeechAvailable: true,
+    message: openaiTranscription
+      ? 'Voice ready: browser speech and OpenAI Whisper transcription.'
+      : 'Set OPENAI_API_KEY in backend/.env (or hosting env) and restart the API. Chrome/Edge browser voice may still work.',
     browserSpeechHint:
       'For free voice input, use Chrome or Edge. Server transcription needs OPENAI_API_KEY in backend/.env',
   });
