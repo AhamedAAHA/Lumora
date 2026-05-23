@@ -78,11 +78,14 @@ if (enableRateLimit) {
   );
 }
 
+const { isOpenAiConfigured } = require('./services/speechService');
+
 app.get('/api/health', (_, res) =>
   res.json({
     status: 'ok',
     service: 'Lumora OS API',
     database: mongoose.connection.readyState === 1 ? 'connected' : 'disconnected',
+    openai: isOpenAiConfigured(),
   })
 );
 
@@ -119,6 +122,9 @@ app.listen(PORT, () => {
   const appUrl = process.env.SERVER_URL || APP_URL;
   console.log(`Lumora API ready (internal port ${PORT})`);
   console.log(`  Open app:  ${appUrl}`);
-  console.log(`  Admin:     ${appUrl}/admin-login.html`);
-  console.log(`  Candidate: ${appUrl}/candidate-pin-login.html`);
+  if (!isOpenAiConfigured()) {
+    console.warn('  OPENAI_API_KEY missing — copy backend/.env.example to backend/.env and add your key');
+  } else {
+    console.log('  OpenAI:    configured (AI + voice transcription)');
+  }
 });

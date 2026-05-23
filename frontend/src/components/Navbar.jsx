@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Menu, X } from 'lucide-react';
 import { initNavbarScroll } from '../lib/gsapAnimations';
+import LumoraLogo from './LumoraLogo';
 
 const navLinks = [
   { label: 'Product', href: '#features' },
@@ -27,14 +28,7 @@ export default function Navbar() {
       style={{ backgroundColor: scrolled ? undefined : 'rgba(5,5,6,0.7)' }}
     >
       <nav className="mx-auto flex max-w-7xl items-center justify-between">
-        <Link to="/" className="flex items-center gap-3">
-          <span className="flex h-8 w-8 flex-col justify-center gap-[3px] pl-0.5">
-            <span className="block h-[2px] w-4 rotate-[-35deg] rounded bg-white" />
-            <span className="block h-[2px] w-4 rotate-[-35deg] rounded bg-white" />
-            <span className="block h-[2px] w-4 rotate-[-35deg] rounded bg-white" />
-          </span>
-          <span className="text-lg font-semibold tracking-tight">Lumora</span>
-        </Link>
+        <LumoraLogo to="/" />
 
         <ul className="hidden items-center gap-10 md:flex">
           {navLinks.map((l) => (

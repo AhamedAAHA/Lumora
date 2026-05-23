@@ -8,6 +8,7 @@ import InterviewTimer from '../components/interview/InterviewTimer';
 import { useAntiCheat } from '../hooks/useAntiCheat';
 import { useConfidenceAnalysis } from '../hooks/useConfidenceAnalysis';
 import { useVoiceInput } from '../hooks/useVoiceInput';
+import { useQuestionAudio } from '../hooks/useQuestionAudio';
 import { FileUp, AlertTriangle } from 'lucide-react';
 
 export default function InterviewRoom() {
@@ -21,11 +22,15 @@ export default function InterviewRoom() {
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState('');
   const voicePlayedRef = useRef('');
-  const audioRef = useRef(null);
   const { scores, history, analyzeAnswer, startTimer, getElapsed } = useConfidenceAnalysis();
-  const { listening, voiceError, setVoiceError, toggleListening } = useVoiceInput(
-    session?.language || 'en'
-  );
+  const lang = session?.language || 'en';
+  const { listening, voiceError, setVoiceError, recording, toggleListening } = useVoiceInput(lang);
+  const { play: playQuestionAudio, stop: stopQuestionAudio } = useQuestionAudio({
+    language: lang,
+    personality: session?.personality || 'friendly_hr',
+    http: api,
+    endpoint: '/voice/speak',
+  });
 
   const reportCheat = useCallback(
     async (w) => {
@@ -56,29 +61,16 @@ export default function InterviewRoom() {
     let cancelled = false;
 
     (async () => {
-      try {
-        const { data } = await api.post('/voice/speak', {
-          text: q,
-          personality: session.personality,
-          language: session.language,
-        });
-        if (cancelled || !data.audioUrl) return;
-        setSpeaking(true);
-        const audio = new Audio(data.audioUrl);
-        audioRef.current = audio;
-        audio.onended = () => setSpeaking(false);
-        await audio.play();
-      } catch (err) {
-        console.warn('Voice playback unavailable', err);
-        if (!cancelled) setSpeaking(false);
-      }
+      setSpeaking(true);
+      await playQuestionAudio(q);
+      if (!cancelled) setSpeaking(false);
     })();
 
     return () => {
       cancelled = true;
-      audioRef.current?.pause();
+      stopQuestionAudio();
     };
-  }, [session?.currentQuestion, session?.personality, session?.language]);
+  }, [session?.currentQuestion, playQuestionAudio, stopQuestionAudio]);
 
   const uploadResume = async (file) => {
     if (!file) return;
@@ -136,14 +128,14 @@ export default function InterviewRoom() {
 
   if (!session) {
     return (
-      <div className="mountain-bg flex min-h-screen items-center justify-center">
-        <div className="h-10 w-10 animate-spin rounded-full border-2 border-indigo-500 border-t-transparent" />
+      <div className="lumora-bg flex min-h-screen items-center justify-center">
+        <div className="loading-spinner" />
       </div>
     );
   }
 
   return (
-    <div className="mountain-bg min-h-screen">
+    <div className="lumora-bg min-h-screen page-fade">
       <header className="flex items-center justify-between border-b border-white/10 px-4 py-4 md:px-8">
         <div className="flex items-center gap-4">
           <span className="pill-tag capitalize">{session.round} round</span>
@@ -206,12 +198,26 @@ export default function InterviewRoom() {
                 answer={answer}
                 onAnswerChange={setAnswer}
                 onListen={() =>
-                  toggleListening((transcript) => {
-                    setAnswer((a) => (a ? `${a} ${transcript}` : transcript));
-                    startTimer();
-                  })
+                  toggleListening(
+                    (transcript) => {
+                      const next = transcript.trim();
+                      if (next) setAnswer(next);
+                      startTimer();
+                    },
+                    (liveText) => {
+                      if (
+                        liveText &&
+                        !liveText.startsWith('🎤') &&
+                        !liveText.startsWith('Recording') &&
+                        !liveText.startsWith('Transcribing')
+                      ) {
+                        setAnswer(liveText);
+                      }
+                    }
+                  )
                 }
                 listening={listening}
+                recording={recording}
                 voiceError={voiceError || submitError}
                 onSubmit={submitAnswer}
                 submitting={submitting}
@@ -236,4 +242,3 @@ export default function InterviewRoom() {
     </div>
   );
 }
-

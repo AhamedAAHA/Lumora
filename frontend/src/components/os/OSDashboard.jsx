@@ -10,6 +10,7 @@ import {
   Sparkles,
   AlertCircle,
 } from 'lucide-react';
+import { LumoraMark } from '../LumoraLogo';
 
 export default function OSDashboard({ compact = false, stats = {}, loading = false }) {
   const pulse = stats.pulse ?? '0';
@@ -34,11 +35,9 @@ export default function OSDashboard({ compact = false, stats = {}, loading = fal
       }`}
     >
       <div className="flex shrink-0 items-center justify-between border-b border-white/[0.06] px-4 py-3 md:px-5">
-        <div className="flex items-center gap-2">
-          <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-white text-xs font-bold text-black">
-            L
-          </span>
-          <span className="font-semibold text-white/90">Lumora OS</span>
+        <div className="flex items-center gap-2.5">
+          <LumoraMark className="h-6 w-5 shrink-0 text-white" />
+          <span className="font-semibold text-white/90">Lumora</span>
           {stats.live && (
             <span className="flex items-center gap-1 text-[10px] text-emerald-400">
               <span className="live-dot" /> Live

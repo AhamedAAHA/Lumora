@@ -87,6 +87,18 @@ function normalizeCvExtracted(data) {
   };
 }
 
+async function translateToEnglish(text, sourceLanguage = 'en') {
+  const trimmed = String(text || '').trim();
+  if (!trimmed || sourceLanguage === 'en') return trimmed;
+  const parsed = await chatJson(
+    'You translate interview content accurately for HR review. Return JSON only.',
+    `Translate the following ${LANG_NAMES[sourceLanguage] || 'text'} to clear English. Preserve meaning.\nReturn JSON: {"english":"..."}\n\nText:\n${trimmed.slice(0, 4500)}`,
+    'en',
+    18000
+  );
+  return parsed?.english?.trim() || trimmed;
+}
+
 async function extractCvData(cvText, jobRole, language = 'en') {
   const parsed = await chatJson(
     'You extract resume data accurately. Only include items clearly supported by the resume text.',
@@ -377,6 +389,7 @@ module.exports = {
   evaluateAnswer,
   evaluateCode,
   generateFinalReport,
+  translateToEnglish,
   LANG_NAMES,
   PERSONALITY_PROMPTS,
 };

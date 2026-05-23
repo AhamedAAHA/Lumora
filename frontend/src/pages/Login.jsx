@@ -35,7 +35,7 @@ export default function Login() {
   };
 
   return (
-    <AuthLayout title="Sign in" subtitle="Access your Lumora OS interview workspace">
+    <AuthLayout title="Admin sign in" subtitle="Manage PIN interviews, candidates, and reports" showCta={false}>
       {serverOk === false && (
         <p className="mt-4 rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-200">
           Backend not reachable. Run: <code className="text-xs">cd backend && npm run dev</code>
@@ -74,9 +74,9 @@ export default function Login() {
         </button>
       </form>
       <p className="mt-6 text-center text-sm text-white/45">
-        No account?{' '}
-        <Link to="/register" className="text-white underline underline-offset-2">
-          Register free
+        Candidate?{' '}
+        <Link to="/pin" className="text-cyan-300 underline underline-offset-2">
+          Enter your PIN
         </Link>
       </p>
       <Link to="/" className="mt-4 block text-center text-xs text-white/35 hover:text-white/60">

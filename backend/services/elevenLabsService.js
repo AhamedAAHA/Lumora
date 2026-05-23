@@ -42,11 +42,7 @@ async function synthesizeSpeech(text, personality = 'friendly_hr', language = 'e
     const filepath = path.join(outDir, filename);
     fs.writeFileSync(filepath, response.data);
     return `/audio/${filename}`;
-  } catch (err) {
-    const detail = err.response?.data
-      ? Buffer.from(err.response.data).toString().slice(0, 200)
-      : err.message;
-    console.error('ElevenLabs error:', detail);
+  } catch {
     return null;
   }
 }

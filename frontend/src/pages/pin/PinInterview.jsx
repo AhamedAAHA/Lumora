@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AlertTriangle, Volume2 } from 'lucide-react';
+import LumoraLogo from '../../components/LumoraLogo';
 import AIAvatar from '../../components/interview/AIAvatar';
 import LiveAnalytics from '../../components/interview/LiveAnalytics';
 import VoiceAnswerControls from '../../components/interview/VoiceAnswerControls';
@@ -8,7 +9,10 @@ import InterviewTimer from '../../components/interview/InterviewTimer';
 import { useAntiCheat } from '../../hooks/useAntiCheat';
 import { useConfidenceAnalysis } from '../../hooks/useConfidenceAnalysis';
 import { useVoiceInput } from '../../hooks/useVoiceInput';
+import { useQuestionAudio } from '../../hooks/useQuestionAudio';
 import pinApi, { getPinToken, clearPinAuth } from '../../lib/pinApi';
+import LumoraBackground from '../../components/LumoraBackground';
+import { langFontClass } from '../../lib/langUtils';
 
 export default function PinInterview() {
   const navigate = useNavigate();
@@ -22,11 +26,16 @@ export default function PinInterview() {
   const plannedTotalRef = useRef(0);
   const answeredCountRef = useRef(0);
   const [submitting, setSubmitting] = useState(false);
-  const audioRef = useRef(null);
+  const [voiceHint, setVoiceHint] = useState('');
   const voicePlayedRef = useRef('');
   const { scores, history, analyzeAnswer, startTimer, getElapsed } = useConfidenceAnalysis();
   const lang = session?.candidate?.language || session?.interview?.language || 'en';
-  const { listening, voiceError, toggleListening } = useVoiceInput(lang);
+  const personality = session?.interview?.personality || session?.candidate?.personality || 'friendly_hr';
+  const { listening, voiceError, toggleListening, recording } = useVoiceInput(lang);
+  const { play: playQuestionAudio, stop: stopQuestionAudio } = useQuestionAudio({
+    language: lang,
+    personality,
+  });
 
   const reportCheat = useCallback(async (w) => {
     try {
@@ -107,31 +116,27 @@ export default function PinInterview() {
   const playVoice = useCallback(async () => {
     if (!question?.text) return;
     setSpeaking(true);
+    setVoiceHint('');
+    stopQuestionAudio();
     try {
-      const { data } = await pinApi.post('/voice/generate-question-audio', {
-        text: question.text,
-        personality: session?.interview?.personality || session?.candidate?.personality,
-        language: lang,
-      });
-      if (data.audioUrl) {
-        audioRef.current?.pause();
-        const audio = new Audio(data.audioUrl);
-        audioRef.current = audio;
-        audio.onended = () => setSpeaking(false);
-        await audio.play();
-      } else setSpeaking(false);
+      const result = await playQuestionAudio(question.text);
+      if (!result.ok) {
+        setVoiceHint('Read the question below, or click Play question again.');
+      }
     } catch {
+      setVoiceHint('Read the question below, or click Play question again.');
+    } finally {
       setSpeaking(false);
     }
-  }, [question?.text, session, lang]);
+  }, [question?.text, playQuestionAudio, stopQuestionAudio]);
 
   useEffect(() => {
     const q = question?.text;
     if (!q || voicePlayedRef.current === q) return;
     voicePlayedRef.current = q;
     playVoice();
-    return () => audioRef.current?.pause();
-  }, [question?.text, playVoice]);
+    return () => stopQuestionAudio();
+  }, [question?.text, playVoice, stopQuestionAudio]);
 
   const submitAnswer = async () => {
     if (!answer.trim() || submitting || submitLockRef.current) return;
@@ -213,18 +218,25 @@ export default function PinInterview() {
 
   const displayQuestionNumber = session?.progress?.current || 0;
 
+  const qFont = langFontClass(lang);
+
   if (!session || !question) {
     return (
-      <div className="mountain-bg flex min-h-screen items-center justify-center">
-        <div className="h-10 w-10 animate-spin rounded-full border-2 border-indigo-500 border-t-transparent" />
-      </div>
+      <LumoraBackground className="items-center justify-center">
+        <div className="loading-spinner" />
+      </LumoraBackground>
     );
   }
 
   return (
-    <div className="mountain-bg min-h-screen">
-      <header className="flex items-center justify-between border-b border-white/10 px-4 py-4 md:px-8">
-        <span className="pill-tag">{session.interview?.title || 'Interview'}</span>
+    <LumoraBackground>
+      <header className="flex flex-wrap items-center justify-between gap-3 border-b border-white/10 px-4 py-4 md:px-8">
+        <div className="flex min-w-0 flex-1 items-center gap-4">
+          <LumoraLogo to="/pin" size="sm" />
+          <span className="pill-tag max-w-[200px] truncate sm:max-w-xs">
+            {session.interview?.title || 'Interview'}
+          </span>
+        </div>
         <div className="flex items-center gap-4">
           <InterviewTimer />
           <span className="text-sm text-white/50">
@@ -252,24 +264,29 @@ export default function PinInterview() {
 
       <div className="mx-auto grid max-w-7xl gap-6 p-4 md:grid-cols-3 md:p-8">
         <div className="space-y-6 md:col-span-2">
-          <div className="glass-card flex flex-col items-center p-8 md:flex-row md:gap-8">
+          <div className="glass-card card-3d flex flex-col items-center p-8 md:flex-row md:gap-8">
             <AIAvatar
               speaking={speaking}
               personality={session.candidate?.personality || session.interview?.personality}
             />
-            <div className="mt-6 flex-1 md:mt-0">
-              <p className="text-xs text-white/40 capitalize">{question.type} question</p>
-              <p className="mt-2 text-lg leading-relaxed">{question.text}</p>
+            <div className={`mt-6 flex-1 md:mt-0 ${qFont}`}>
+              <p className="text-xs text-cyan-300/60 capitalize">{question.type} question</p>
+              <p className="mt-2 text-lg leading-relaxed text-white/95">{question.text}</p>
+              {voiceHint && (
+                <p className="mt-2 rounded-lg border border-cyan-500/20 bg-cyan-500/10 px-3 py-2 text-sm text-cyan-100/90">
+                  {voiceHint}
+                </p>
+              )}
               {session.interviewerComment && (
-                <p className="mt-3 text-sm italic text-indigo-300/80">{session.interviewerComment}</p>
+                <p className={`mt-3 text-sm italic text-indigo-300/80 ${qFont}`}>{session.interviewerComment}</p>
               )}
               <button
                 type="button"
                 onClick={playVoice}
-                className="btn-secondary mt-4 inline-flex items-center gap-2 text-sm"
+                className="btn-secondary btn-3d mt-4 inline-flex items-center gap-2 text-sm"
               >
                 <Volume2 className="h-4 w-4" />
-                Play question audio
+                Play question
               </button>
             </div>
           </div>
@@ -279,12 +296,26 @@ export default function PinInterview() {
             onAnswerChange={setAnswer}
             onSubmit={submitAnswer}
             onListen={() =>
-              toggleListening((transcript) => {
-                setAnswer((a) => (a ? `${a} ${transcript}` : transcript));
-                startTimer();
-              })
+              toggleListening(
+                (transcript) => {
+                  const next = transcript.trim();
+                  if (next) setAnswer(next);
+                  startTimer();
+                },
+                (liveText) => {
+                  if (
+                    liveText &&
+                    !liveText.startsWith('🎤') &&
+                    !liveText.startsWith('Recording') &&
+                    !liveText.startsWith('Transcribing')
+                  ) {
+                    setAnswer(liveText);
+                  }
+                }
+              )
             }
             listening={listening}
+            recording={recording}
             voiceError={[voiceError, submitError].filter(Boolean).join(' ')}
             submitting={submitting}
             extraActions={
@@ -305,6 +336,6 @@ export default function PinInterview() {
 
         <LiveAnalytics scores={analyticsScores} history={analyticsHistory} progress={progress} />
       </div>
-    </div>
+    </LumoraBackground>
   );
 }

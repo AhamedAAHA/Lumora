@@ -1,20 +1,38 @@
 const express = require('express');
 const { protect } = require('../middleware/auth');
 const { synthesizeSpeech } = require('../services/elevenLabsService');
+const { synthesizeOpenAI } = require('../services/speechService');
 
 const router = express.Router();
 
 router.post('/speak', protect, async (req, res) => {
   try {
-    const { text, personality, language } = req.body;
-    const audioUrl = await synthesizeSpeech(text, personality, language);
-    if (!audioUrl) {
-      return res.json({ audioUrl: null, fallback: true });
+    const text = String(req.body.text || '').trim();
+    if (!text) return res.status(400).json({ message: 'Question text required' });
+
+    const personality = req.body.personality || 'friendly_hr';
+    const language = req.body.language || 'en';
+
+    let audioPath = await synthesizeSpeech(text, personality, language);
+    if (!audioPath) audioPath = await synthesizeOpenAI(text, language);
+
+    if (!audioPath) {
+      return res.json({
+        audioUrl: null,
+        fallback: true,
+        useBrowserTts: true,
+        message: 'Using browser voice — click Play question if needed.',
+      });
     }
-    const base = process.env.SERVER_URL || 'http://localhost:5173';
-    res.json({ audioUrl: `${base}${audioUrl}` });
+
+    res.json({ audioUrl: audioPath, fallback: false, useBrowserTts: false });
   } catch (err) {
-    res.status(500).json({ message: err.message });
+    res.status(500).json({
+      audioUrl: null,
+      fallback: true,
+      useBrowserTts: true,
+      message: err.message,
+    });
   }
 });
 

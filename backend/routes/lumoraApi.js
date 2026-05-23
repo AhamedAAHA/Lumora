@@ -1,7 +1,23 @@
 const express = require('express');
 const jwt = require('jsonwebtoken');
+const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
+
+const audioUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 8 * 1024 * 1024 },
+  fileFilter: (_, file, cb) => {
+    const name = (file.originalname || '').toLowerCase();
+    const ok =
+      (file.mimetype && file.mimetype.startsWith('audio/')) ||
+      name.endsWith('.webm') ||
+      name.endsWith('.wav') ||
+      name.endsWith('.mp3') ||
+      name.endsWith('.m4a');
+    cb(ok ? null : new Error('Audio file required'), ok);
+  },
+});
 const Interview = require('../models/Interview');
 const Candidate = require('../models/Candidate');
 const CustomQuestion = require('../models/CustomQuestion');
@@ -14,6 +30,7 @@ const { protect, authorize } = require('../middleware/auth');
 const { protectCandidate } = require('../middleware/candidateAuth');
 const { parseResumePdf } = require('../services/resumeParser');
 const { synthesizeSpeech } = require('../services/elevenLabsService');
+const { synthesizeOpenAI, transcribeAudio, isOpenAiConfigured } = require('../services/speechService');
 const {
   extractCvData,
   normalizeCvExtracted,
@@ -21,6 +38,7 @@ const {
   evaluateAnswer,
   evaluateCode,
   generateFinalReport,
+  translateToEnglish,
   normalizeBasedOn,
   normalizeDifficulty,
   LANG_NAMES,
@@ -602,7 +620,8 @@ router.post('/candidate/upload-cv', protectCandidate, (req, res, next) => {
       cvText = fs.readFileSync(req.file.path, 'utf8').slice(0, 8000);
     }
 
-    const lang = req.body.language || interview.language || 'en';
+    const lang = pickEnum('language', req.body.language, req.candidate.language || interview.language || 'en');
+    req.candidate.language = lang;
     const extracted = await extractCvData(cvText, interview.jobRole, lang);
     const baseUrl = process.env.SERVER_URL || 'http://localhost:5173';
     const cvFileUrl = `${baseUrl}/uploads/${path.basename(req.file.path)}`;
@@ -894,8 +913,7 @@ router.post('/candidate/submit-answer', protectCandidate, async (req, res) => {
         round: req.candidate.round || interview.round,
         metrics,
       });
-    } catch (evalErr) {
-      console.warn('[submit-answer] evaluateAnswer failed:', evalErr.message);
+    } catch {
       const words = answerText.trim().split(/\s+/).filter(Boolean).length;
       evaluation = {
         score: words < 15 ? 4 : words < 40 ? 6 : 8,
@@ -927,6 +945,21 @@ router.post('/candidate/submit-answer', protectCandidate, async (req, res) => {
       });
     }
 
+    const answerLang = req.candidate.language || interview.language || 'en';
+    let answerEnglish = answerText;
+    let aiFeedbackEnglish = evaluation.feedback || '';
+    if (answerLang !== 'en') {
+      try {
+        answerEnglish = await translateToEnglish(answerText, answerLang);
+        if (evaluation.feedback) {
+          aiFeedbackEnglish = await translateToEnglish(evaluation.feedback, answerLang);
+        }
+      } catch {
+        answerEnglish = answerText;
+        aiFeedbackEnglish = evaluation.feedback || '';
+      }
+    }
+
     await CandidateAnswer.create({
       interviewId: interview._id,
       candidateId: req.candidate._id,
@@ -934,8 +967,11 @@ router.post('/candidate/submit-answer', protectCandidate, async (req, res) => {
       questionType: current.type,
       questionText: current.text,
       candidateAnswer: answerText,
+      answerEnglish,
+      answerLanguage: answerLang,
       aiScore: evaluation.score,
       aiFeedback: evaluation.feedback,
+      aiFeedbackEnglish,
       metrics,
     });
 
@@ -952,7 +988,6 @@ router.post('/candidate/submit-answer', protectCandidate, async (req, res) => {
     try {
       await req.candidate.save();
     } catch (saveErr) {
-      console.error('[submit-answer] save failed:', saveErr.message);
       return res.status(400).json({
         message: saveErr.message || 'Could not save progress. Please try again.',
       });
@@ -1188,15 +1223,76 @@ router.post('/voice/generate-question-audio', async (req, res) => {
     if (!text) return res.status(400).json({ message: 'Question text required' });
 
     const personality = req.body.personality || 'friendly_hr';
-    const language = req.body.language || 'en';
-    const audioPath = await synthesizeSpeech(text, personality, language);
+    const language = pickEnum('language', req.body.language, 'en');
+
+    let audioPath = await synthesizeSpeech(text, personality, language);
+    if (!audioPath) audioPath = await synthesizeOpenAI(text, language);
+
     if (!audioPath) {
-      return res.json({ audioUrl: null, fallback: true, message: 'Voice unavailable — read the question on screen' });
+      return res.json({
+        audioUrl: null,
+        fallback: true,
+        useBrowserTts: true,
+        message: 'Using browser voice — click Play question if needed.',
+      });
     }
-    const base = process.env.SERVER_URL || 'http://localhost:5173';
-    res.json({ audioUrl: `${base}${audioPath}`, fallback: false });
+
+    res.json({ audioUrl: audioPath, fallback: false, useBrowserTts: false });
+  } catch {
+    res.json({
+      audioUrl: null,
+      fallback: true,
+      useBrowserTts: true,
+      message: 'Using browser voice — click Play question.',
+    });
+  }
+});
+
+router.get('/voice/capabilities', (_req, res) => {
+  res.json({
+    openaiTranscription: isOpenAiConfigured(),
+    browserSpeechHint:
+      'For free voice input, use Chrome or Edge. Server transcription needs OPENAI_API_KEY in backend/.env',
+  });
+});
+
+router.post('/voice/transcribe', protectCandidate, (req, res, next) => {
+  audioUpload.single('audio')(req, res, (err) => {
+    if (err) return res.status(400).json({ message: err.message || 'Invalid audio upload' });
+    next();
+  });
+}, async (req, res) => {
+  try {
+    if (!req.file?.buffer?.length) {
+      return res.status(400).json({ message: 'Record audio first, then release the button.' });
+    }
+    if (!isOpenAiConfigured()) {
+      return res.status(503).json({
+        message:
+          'Server transcription is not configured. Create backend/.env with OPENAI_API_KEY=sk-... then restart npm run dev. Or use Chrome/Edge for free voice input.',
+        code: 'OPENAI_NOT_CONFIGURED',
+      });
+    }
+
+    const language = pickEnum('language', req.body.language, req.candidate.language || 'en');
+    const mime = req.file.mimetype || 'audio/webm';
+    const { text, error } = await transcribeAudio(req.file.buffer, language, mime);
+
+    if (!text) {
+      const messages = {
+        OPENAI_NOT_CONFIGURED:
+          'Add OPENAI_API_KEY to backend/.env and restart the server, or use Chrome/Edge voice input.',
+        NO_SPEECH: 'No speech detected. Speak clearly and try again, or type your answer.',
+        EMPTY_AUDIO: 'Recording was empty. Try again.',
+      };
+      return res.status(503).json({
+        message: messages[error] || `Transcription failed: ${error}. Type your answer instead.`,
+        code: error,
+      });
+    }
+    res.json({ transcript: text, language });
   } catch (err) {
-    res.json({ audioUrl: null, fallback: true, message: err.message });
+    res.status(500).json({ message: err.message || 'Transcription failed' });
   }
 });
 

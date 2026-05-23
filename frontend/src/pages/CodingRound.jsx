@@ -48,7 +48,7 @@ export default function CodingRound() {
   };
 
   return (
-    <div className="mountain-bg min-h-screen p-4 md:p-8">
+    <div className="lumora-bg min-h-screen p-4 md:p-8 page-fade">
       <Link to={`/interview/${sessionId}`} className="text-sm text-white/50">
         {'<- Back to interview'}
       </Link>
