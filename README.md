@@ -81,11 +81,6 @@ This starts **everything** on **http://localhost:5173** (API is auto-started and
 | Admin dashboard | http://localhost:5173/admin-dashboard.html |
 | Candidate PIN | http://localhost:5173/candidate-pin-login.html |
 
-## Admin credentials
-
-- **Email:** `admin@lumora.com`
-- **Password:** `admin123`
-
 ## Workflows
 
 **Admin:** Login → Dashboard → Create interview → Add questions → Generate PIN → Share with candidate → View report
