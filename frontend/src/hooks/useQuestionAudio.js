@@ -2,6 +2,14 @@ import { useCallback, useEffect, useRef } from 'react';
 import pinApi from '../lib/pinApi';
 import { speakWithBrowser, stopBrowserSpeech, warmBrowserVoices } from '../lib/speech';
 
+function resolveAudioUrl(audioUrl, apiBaseUrl) {
+  if (/^https?:\/\//i.test(audioUrl) || !/^https?:\/\//i.test(apiBaseUrl || '')) {
+    return audioUrl;
+  }
+
+  return new URL(audioUrl, new URL(apiBaseUrl).origin).toString();
+}
+
 /**
  * Play interview question: ElevenLabs/OpenAI MP3 via API, then browser TTS fallback.
  */
@@ -40,9 +48,7 @@ export function useQuestionAudio({
         });
 
         if (data.audioUrl && !data.fallback) {
-          const url = data.audioUrl.startsWith('http')
-            ? new URL(data.audioUrl).pathname
-            : data.audioUrl;
+          const url = resolveAudioUrl(data.audioUrl, http.defaults?.baseURL);
 
           const audio = new Audio(url);
           audioRef.current = audio;
