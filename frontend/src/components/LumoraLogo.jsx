@@ -7,14 +7,18 @@ const sizes = {
   xl: 'h-28 max-w-[14rem]',
 };
 
+const logoClass =
+  'shrink-0 object-contain object-left [filter:drop-shadow(0_1px_2px_rgba(0,0,0,0.35))]';
+
 /** Compact Lumora logo image (icon + wordmark) */
 export function LumoraMark({ className = 'h-8 w-auto' }) {
   return (
     <img
       src="/lumora-logo.png"
       alt=""
-      className={`${className} shrink-0 object-contain object-left`}
+      className={`${className} w-auto ${logoClass}`}
       aria-hidden="true"
+      decoding="async"
     />
   );
 }
@@ -30,7 +34,8 @@ export default function LumoraLogo({ to = '/', className = '', size = 'md' }) {
     <img
       src="/lumora-logo.png"
       alt="Lumora AI Interviewer"
-      className={`${sizeClass} w-auto shrink-0 object-contain object-left`}
+      className={`${sizeClass} w-auto ${logoClass}`}
+      decoding="async"
     />
   );
 
