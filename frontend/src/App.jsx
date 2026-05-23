@@ -1,6 +1,7 @@
 import { lazy, Suspense } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { useAuth } from './context/AuthContext';
+import LumoraLogo from './components/LumoraLogo';
 import LandingPage from './pages/LandingPage';
 import Login from './pages/Login';
 import Register from './pages/Register';
@@ -19,8 +20,9 @@ const PinCompleted = lazy(() => import('./pages/pin/PinCompleted'));
 
 function PageLoader() {
   return (
-    <div className="flex min-h-screen items-center justify-center bg-lumora-black">
-      <div className="h-10 w-10 animate-spin rounded-full border-2 border-indigo-500 border-t-transparent" />
+    <div className="lumora-bg flex min-h-screen flex-col items-center justify-center gap-5">
+      <LumoraLogo to="/" size="lg" />
+      <div className="loading-spinner" />
     </div>
   );
 }

@@ -72,16 +72,13 @@ const defaultSettings = {
 
 const tabs = [
   { id: 'overview', label: 'Overview', icon: BarChart3 },
-  { id: 'candidates', label: 'Candidates', icon: Users },
-  { id: 'jobs', label: 'Job Roles', icon: ClipboardList },
-  { id: 'interviews', label: 'Interviews', icon: ClipboardList },
-  { id: 'questions', label: 'Questions', icon: Sparkles },
+  { id: 'interviews', label: 'PIN Interviews', icon: KeyRound },
   { id: 'reports', label: 'Reports', icon: FileText },
   { id: 'settings', label: 'Settings', icon: Settings },
 ];
 
 export default function AdminDashboard() {
-  const [activeTab, setActiveTab] = useState('overview');
+  const [activeTab, setActiveTab] = useState('interviews');
   const [stats, setStats] = useState(null);
   const [users, setUsers] = useState([]);
   const [interviews, setInterviews] = useState([]);
@@ -413,6 +410,17 @@ export default function AdminDashboard() {
     }
   };
 
+  const movePinQuestion = (idx, direction) => {
+    setPinEditDraft((d) => {
+      if (!d) return d;
+      const qs = [...d.customQuestions];
+      const j = idx + direction;
+      if (j < 0 || j >= qs.length) return d;
+      [qs[idx], qs[j]] = [qs[j], qs[idx]];
+      return { ...d, customQuestions: qs };
+    });
+  };
+
   const savePinEdit = () =>
     run('PIN interview updated', async () => {
       await api.put(`/interviews/${editingPinId}`, {
@@ -428,6 +436,10 @@ export default function AdminDashboard() {
         includeCoding: pinEditDraft.includeCoding,
         customQuestions: pinEditDraft.customQuestions,
       });
+      const orderedIds = pinEditDraft.customQuestions.map((q) => q.id).filter(Boolean);
+      if (orderedIds.length > 1) {
+        await api.post(`/interviews/${editingPinId}/questions/reorder`, { orderedIds });
+      }
       setEditingPinId('');
       setPinEditDraft(null);
     });
@@ -493,6 +505,12 @@ export default function AdminDashboard() {
                     </p>
                     <p className="mt-2 text-sm font-medium text-white/90">{a.questionText}</p>
                     <p className="mt-2 text-sm text-white/65">{a.candidateAnswer}</p>
+                    {a.answerEnglish && a.answerLanguage && a.answerLanguage !== 'en' && (
+                      <p className="mt-2 text-sm text-white/45">
+                        <span className="text-white/30">English: </span>
+                        {a.answerEnglish}
+                      </p>
+                    )}
                     {a.aiScore != null && (
                       <p className="mt-2 text-xs text-white/45">
                         Score {a.aiScore}/10
@@ -732,6 +750,15 @@ export default function AdminDashboard() {
                     onChange={(candidateEmail) => setPinForm((f) => ({ ...f, candidateEmail }))}
                     placeholder="Candidate email"
                   />
+                  <Select
+                    value={pinForm.language}
+                    onChange={(language) => setPinForm((f) => ({ ...f, language }))}
+                    options={[
+                      ['en', 'English'],
+                      ['ta', 'Tamil'],
+                      ['si', 'Sinhala'],
+                    ]}
+                  />
                   <Input value={pinForm.q1} onChange={(q1) => setPinForm((f) => ({ ...f, q1 }))} placeholder="Question 1" />
                   <Input value={pinForm.q2} onChange={(q2) => setPinForm((f) => ({ ...f, q2 }))} placeholder="Question 2" />
                   <Input value={pinForm.q3} onChange={(q3) => setPinForm((f) => ({ ...f, q3 }))} placeholder="Question 3 (optional)" />
@@ -815,6 +842,15 @@ export default function AdminDashboard() {
                         </div>
                         <div className="grid gap-3 sm:grid-cols-2">
                           <Select
+                            value={pinEditDraft.language || 'en'}
+                            onChange={(language) => setPinEditDraft((d) => ({ ...d, language }))}
+                            options={[
+                              ['en', 'English'],
+                              ['ta', 'Tamil'],
+                              ['si', 'Sinhala'],
+                            ]}
+                          />
+                          <Select
                             value={pinEditDraft.round}
                             onChange={(round) => setPinEditDraft((d) => ({ ...d, round }))}
                             options={[['hr', 'HR'], ['technical', 'Technical'], ['final', 'Final']]}
@@ -843,19 +879,40 @@ export default function AdminDashboard() {
                         />
                         <p className="text-xs text-white/45">Custom questions</p>
                         {pinEditDraft.customQuestions.map((q, idx) => (
-                          <Input
-                            key={q.id || idx}
-                            value={q.questionText}
-                            onChange={(questionText) =>
-                              setPinEditDraft((d) => ({
-                                ...d,
-                                customQuestions: d.customQuestions.map((item, i) =>
-                                  i === idx ? { ...item, questionText } : item
-                                ),
-                              }))
-                            }
-                            placeholder={`Question ${idx + 1}`}
-                          />
+                          <div key={q.id || idx} className="flex gap-2">
+                            <Input
+                              value={q.questionText}
+                              onChange={(questionText) =>
+                                setPinEditDraft((d) => ({
+                                  ...d,
+                                  customQuestions: d.customQuestions.map((item, i) =>
+                                    i === idx ? { ...item, questionText } : item
+                                  ),
+                                }))
+                              }
+                              placeholder={`Question ${idx + 1}`}
+                            />
+                            <div className="flex shrink-0 flex-col gap-1">
+                              <button
+                                type="button"
+                                className="btn-ghost rounded-lg border border-white/10 px-2 text-xs"
+                                disabled={idx === 0}
+                                onClick={() => movePinQuestion(idx, -1)}
+                                aria-label="Move up"
+                              >
+                                ↑
+                              </button>
+                              <button
+                                type="button"
+                                className="btn-ghost rounded-lg border border-white/10 px-2 text-xs"
+                                disabled={idx === pinEditDraft.customQuestions.length - 1}
+                                onClick={() => movePinQuestion(idx, 1)}
+                                aria-label="Move down"
+                              >
+                                ↓
+                              </button>
+                            </div>
+                          </div>
                         ))}
                         <label className="inline-flex items-center gap-2 text-sm text-white/60">
                           <input

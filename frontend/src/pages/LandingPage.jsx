@@ -11,6 +11,7 @@ import {
   Code2,
   Globe,
 } from 'lucide-react';
+import LumoraBackground from '../components/LumoraBackground';
 import Navbar from '../components/Navbar';
 import Hero from '../components/Hero';
 import FeatureCard from '../components/FeatureCard';
@@ -68,9 +69,11 @@ export default function LandingPage() {
   }, []);
 
   return (
-    <div className="mountain-bg min-h-screen w-full overflow-x-hidden">
+    <LumoraBackground className="overflow-x-hidden">
       <Navbar />
-      <Hero />
+      <div className="page-fade">
+        <Hero />
+      </div>
 
       <section id="features" ref={featuresRef} className="relative w-full py-20 md:py-28">
         <div className="mx-auto max-w-7xl px-4 md:px-8">
@@ -115,8 +118,8 @@ export default function LandingPage() {
       <UseCases />
 
       <footer className="w-full border-t border-white/[0.06] py-12 text-center text-sm text-white/35">
-        <p>© {new Date().getFullYear()} Lumora OS. AI Interview Platform.</p>
+        <p>© {new Date().getFullYear()} Lumora. AI Interview Platform.</p>
       </footer>
-    </div>
+    </LumoraBackground>
   );
 }

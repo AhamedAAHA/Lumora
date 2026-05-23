@@ -53,8 +53,8 @@ export default function PinLogin() {
           />
         </label>
         <p className="text-center text-xs text-white/40">{pin.length} / 6 digits</p>
-        <button type="submit" disabled={loading || pin.length !== 6} className="btn-primary w-full !rounded-xl">
-          {loading ? 'Verifying...' : 'Start interview'}
+        <button type="submit" disabled={loading || pin.length !== 6} className="btn-primary btn-3d w-full !rounded-xl">
+          {loading ? 'Verifying...' : 'Verify PIN'}
         </button>
       </form>
       <p className="mt-6 text-center text-sm text-white/45">

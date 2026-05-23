@@ -7,6 +7,7 @@ function VoiceAnswerControls({
   onSubmit,
   onListen,
   listening,
+  recording = false,
   voiceError,
   submitting,
   submitLabel = 'Submit answer',
@@ -14,14 +15,22 @@ function VoiceAnswerControls({
 }) {
   return (
     <div className="glass-card p-6">
-      <label className="text-sm text-white/50">Your answer (type or use voice)</label>
+      <label className="text-sm text-white/50">
+        Your answer {listening ? <span className="text-cyan-400">(listening…)</span> : '(type or voice)'}
+      </label>
       <textarea
         value={answer}
         onChange={(e) => onAnswerChange(e.target.value)}
         rows={5}
         disabled={submitting}
-        className="mt-2 w-full resize-none rounded-xl border border-white/10 bg-black/40 p-4 outline-none focus:border-indigo-500 disabled:opacity-60"
-        placeholder="Type your answer or tap the microphone..."
+        className={`mt-2 w-full resize-none rounded-xl border bg-black/40 p-4 outline-none focus:border-cyan-500/50 disabled:opacity-60 ${
+          listening ? 'border-cyan-500/40 ring-1 ring-cyan-500/20' : 'border-white/10'
+        }`}
+        placeholder={
+          recording
+            ? 'Recording… speak now, then click Stop listening'
+            : 'Click Voice input and speak (pauses auto-stop in Chrome) — or type here'
+        }
       />
       {voiceError && <p className="mt-3 text-sm text-amber-200">{voiceError}</p>}
       <div className="mt-4 flex flex-wrap gap-3">
@@ -32,7 +41,7 @@ function VoiceAnswerControls({
           className={`btn-secondary inline-flex items-center gap-2 ${listening ? 'ring-2 ring-indigo-500' : ''}`}
         >
           {listening ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
-          {listening ? 'Listening…' : 'Voice input'}
+          {recording ? 'Stop recording' : listening ? 'Stop listening' : 'Voice input'}
         </button>
         <button
           type="button"

@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { Upload, Sparkles } from 'lucide-react';
 import PinShell from '../../layouts/PinShell';
 import pinApi, { getPinToken } from '../../lib/pinApi';
+import { langFontClass, langSelectOptions } from '../../lib/langUtils';
 
 export default function PinCvUpload() {
   const navigate = useNavigate();
@@ -44,12 +45,7 @@ export default function PinCvUpload() {
   }, [navigate]);
 
   const savePrefs = async () => {
-    try {
-      await pinApi.post('/candidate/configure', { language, personality });
-    } catch (err) {
-      setError(err.response?.data?.message || err.message);
-      throw err;
-    }
+    await pinApi.post('/candidate/configure', { language, personality });
   };
 
   const upload = async (file) => {
@@ -60,6 +56,7 @@ export default function PinCvUpload() {
       await savePrefs();
       const fd = new FormData();
       fd.append('cv', file);
+      fd.append('language', language);
       const { data } = await pinApi.post('/candidate/upload-cv', fd);
       sessionStorage.setItem('lumora_candidate_status', data.candidate.status);
       setSummary(data.cvSummary || 'Profile extracted.');
@@ -73,11 +70,12 @@ export default function PinCvUpload() {
 
   const generateQuestions = async () => {
     setBusy('gen');
+    setError('');
     try {
+      await savePrefs();
       const { data } = await pinApi.post('/candidate/generate-cv-questions');
       sessionStorage.setItem('lumora_candidate_status', 'cv_uploaded');
       setReady(true);
-      setError('');
       if (data.count) setSummary((s) => `${s}\n\n${data.count} AI questions ready.`);
     } catch (err) {
       setError(err.response?.data?.message || err.message);
@@ -99,6 +97,8 @@ export default function PinCvUpload() {
     }
   };
 
+  const fontClass = langFontClass(language);
+
   return (
     <PinShell title="Upload your CV" subtitle={interviewTitle || 'Personalized questions from your resume'}>
       {error && (
@@ -108,46 +108,60 @@ export default function PinCvUpload() {
       )}
 
       <div className="grid gap-5 lg:grid-cols-2">
-        <div className="os-panel space-y-4 p-5">
-          <h3 className="font-semibold">Preferences</h3>
-          <select
-            value={language}
-            onChange={(e) => setLanguage(e.target.value)}
-            className="mono-select h-11 w-full"
-          >
-            <option value="en">English</option>
-            <option value="ta">Tamil</option>
-            <option value="si">Sinhala</option>
-          </select>
-          <select
-            value={personality}
-            onChange={(e) => setPersonality(e.target.value)}
-            className="mono-select h-11 w-full"
-          >
-            <option value="friendly_hr">Friendly HR</option>
-            <option value="strict_corporate">Strict Corporate</option>
-            <option value="senior_engineer">Senior Engineer</option>
-            <option value="startup_founder">Startup Founder</option>
-            <option value="technical_lead">Technical Lead</option>
-          </select>
+        <div className="os-panel card-3d space-y-4 p-5">
+          <h3 className="font-semibold">Language & interviewer</h3>
+          <p className="text-xs text-white/45">Questions and feedback will be in your selected language.</p>
+          <label className="block text-sm text-white/70">
+            Interview language
+            <select
+              value={language}
+              onChange={(e) => setLanguage(e.target.value)}
+              className={`mono-select mt-2 h-11 w-full ${fontClass}`}
+            >
+              {langSelectOptions().map(([value, label]) => (
+                <option key={value} value={value}>
+                  {label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="block text-sm text-white/70">
+            Interviewer style
+            <select
+              value={personality}
+              onChange={(e) => setPersonality(e.target.value)}
+              className="mono-select mt-2 h-11 w-full"
+            >
+              <option value="friendly_hr">Friendly HR</option>
+              <option value="strict_corporate">Strict Corporate</option>
+              <option value="senior_engineer">Senior Engineer</option>
+              <option value="startup_founder">Startup Founder</option>
+              <option value="technical_lead">Technical Lead</option>
+            </select>
+          </label>
         </div>
 
-        <div className="os-panel space-y-4 p-5">
+        <div className="os-panel card-3d space-y-4 p-5">
           <h3 className="font-semibold">Resume</h3>
-          <label className="flex cursor-pointer flex-col items-center gap-3 rounded-xl border border-dashed border-white/20 bg-white/[0.03] px-4 py-8">
-            <Upload className="h-8 w-8 text-white/40" />
+          <label className="flex cursor-pointer flex-col items-center gap-3 rounded-xl border border-dashed border-cyan-500/25 bg-white/[0.03] px-4 py-8 transition hover:border-cyan-500/40">
+            <Upload className="h-8 w-8 text-cyan-400/60" />
             <span className="text-sm text-white/50">PDF, DOC, DOCX — max 5MB</span>
             <input
               type="file"
-              accept=".pdf,.doc,.docx"
+              accept=".pdf,.doc,.docx,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
               className="hidden"
               onChange={(e) => upload(e.target.files?.[0])}
             />
           </label>
-          {busy === 'upload' && <p className="text-sm text-white/50">Analyzing CV...</p>}
+          {busy === 'upload' && (
+            <div className="flex items-center gap-2 text-sm text-white/50">
+              <span className="loading-spinner !h-5 !w-5" />
+              Analyzing CV...
+            </div>
+          )}
           {summary && (
-            <div className="rounded-xl border border-white/10 bg-black/20 p-3 text-sm text-white/70">
-              <p>{summary}</p>
+            <div className={`rounded-xl border border-white/10 bg-black/20 p-3 text-sm text-white/70 ${fontClass}`}>
+              <p className="whitespace-pre-wrap">{summary}</p>
               {skills && <p className="mt-2 text-white/50">Skills: {skills}</p>}
             </div>
           )}

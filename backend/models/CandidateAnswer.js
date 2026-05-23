@@ -9,8 +9,13 @@ const candidateAnswerSchema = new mongoose.Schema(
     questionType: { type: String, enum: ['custom', 'ai', 'followup'], required: true },
     questionText: { type: String, required: true },
     candidateAnswer: { type: String, required: true },
+    /** English translation when candidate answered in Tamil/Sinhala */
+    answerEnglish: { type: String },
+    answerLanguage: { type: String, enum: ['en', 'ta', 'si'], default: 'en' },
     aiScore: { type: Number, min: 0, max: 10 },
     aiFeedback: { type: String },
+    /** English translation of AI feedback for admin review */
+    aiFeedbackEnglish: { type: String },
     metrics: {
       confidence: Number,
       communication: Number,

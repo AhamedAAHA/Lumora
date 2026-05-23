@@ -11,6 +11,30 @@ const backendDir = path.resolve(__dirname, '../backend');
 const APP_URL = 'http://localhost:5173';
 const BACKEND_INTERNAL_PORT = process.env.BACKEND_INTERNAL_PORT || '5000';
 
+/** Parse backend/.env so spawned API gets OPENAI_API_KEY etc. */
+function loadBackendEnv() {
+  const envPath = path.join(backendDir, '.env');
+  const merged = {};
+  if (!fs.existsSync(envPath)) return merged;
+  const lines = fs.readFileSync(envPath, 'utf8').split(/\r?\n/);
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('#')) continue;
+    const eq = trimmed.indexOf('=');
+    if (eq === -1) continue;
+    const key = trimmed.slice(0, eq).trim();
+    let val = trimmed.slice(eq + 1).trim();
+    if (
+      (val.startsWith('"') && val.endsWith('"')) ||
+      (val.startsWith("'") && val.endsWith("'"))
+    ) {
+      val = val.slice(1, -1);
+    }
+    merged[key] = val;
+  }
+  return merged;
+}
+
 let backendProcess = null;
 
 /** Start Express API in background; only port 5173 is exposed to the browser */
@@ -19,10 +43,12 @@ function lumoraBackendPlugin() {
     name: 'lumora-backend',
     configureServer(server) {
       if (backendProcess) return;
+      const backendEnv = loadBackendEnv();
       backendProcess = spawn(process.execPath, ['index.js'], {
         cwd: backendDir,
         env: {
           ...process.env,
+          ...backendEnv,
           PORT: BACKEND_INTERNAL_PORT,
           SERVER_URL: APP_URL,
           CLIENT_URL: APP_URL,
