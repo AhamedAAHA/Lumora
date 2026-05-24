@@ -39,6 +39,9 @@ export function useVoiceInput(language = 'en') {
   const mediaRecorderRef = useRef(null);
   const streamRef = useRef(null);
   const chunksRef = useRef([]);
+  const audioContextRef = useRef(null);
+  const signalFrameRef = useRef(null);
+  const recordedSignalRef = useRef(true);
   const transcriptRef = useRef('');
   const lastHeardRef = useRef('');
   const callbacksRef = useRef({ onFinal: null, onInterim: null });
@@ -47,6 +50,17 @@ export function useVoiceInput(language = 'en') {
 
   const speechLang = speechLangCode(language);
   const browserSr = isSpeechRecognitionSupported();
+
+  const stopSignalMonitor = useCallback(() => {
+    if (signalFrameRef.current) {
+      window.cancelAnimationFrame(signalFrameRef.current);
+      signalFrameRef.current = null;
+    }
+    if (audioContextRef.current) {
+      audioContextRef.current.close().catch(() => {});
+      audioContextRef.current = null;
+    }
+  }, []);
 
   const refreshCapabilities = useCallback(async () => {
     try {
@@ -85,8 +99,9 @@ export function useVoiceInput(language = 'en') {
         }
       }
       streamRef.current?.getTracks().forEach((t) => t.stop());
+      stopSignalMonitor();
     };
-  }, []);
+  }, [stopSignalMonitor]);
 
   const stopBrowserRecognition = useCallback(() => {
     const rec = recognitionRef.current;
@@ -167,6 +182,32 @@ export function useVoiceInput(language = 'en') {
         });
         streamRef.current = stream;
         chunksRef.current = [];
+        recordedSignalRef.current = true;
+
+        const AudioCtx = window.AudioContext || window.webkitAudioContext;
+        if (AudioCtx) {
+          try {
+            const ctx = new AudioCtx();
+            const source = ctx.createMediaStreamSource(stream);
+            const analyser = ctx.createAnalyser();
+            analyser.fftSize = 1024;
+            source.connect(analyser);
+            const samples = new Uint8Array(analyser.fftSize);
+            recordedSignalRef.current = false;
+            audioContextRef.current = ctx;
+
+            const detectSignal = () => {
+              analyser.getByteTimeDomainData(samples);
+              let total = 0;
+              for (const value of samples) total += Math.abs(value - 128);
+              if (total / samples.length > 2.5) recordedSignalRef.current = true;
+              signalFrameRef.current = window.requestAnimationFrame(detectSignal);
+            };
+            detectSignal();
+          } catch {
+            recordedSignalRef.current = true;
+          }
+        }
 
         const mobile = isMobileDevice();
         const mimeCandidates = mobile
@@ -186,9 +227,13 @@ export function useVoiceInput(language = 'en') {
           streamRef.current = null;
           setRecording(false);
           setListening(false);
+          const capturedSpeech = recordedSignalRef.current;
+          stopSignalMonitor();
           const blob = new Blob(chunksRef.current, { type: recorder.mimeType || 'audio/webm' });
           chunksRef.current = [];
-          if (blob.size > 300) await transcribeBlob(blob, onTranscript, onInterim);
+          if (!capturedSpeech) {
+            setVoiceError('Your microphone recorded silence. Choose the correct laptop microphone and try again.');
+          } else if (blob.size > 300) await transcribeBlob(blob, onTranscript, onInterim);
           else setVoiceError('Recording too short. Speak for 2–3 seconds, then click Stop listening.');
         };
 
@@ -196,6 +241,7 @@ export function useVoiceInput(language = 'en') {
         setRecording(true);
         setListening(true);
       } catch (err) {
+        stopSignalMonitor();
         setVoiceError(
           err.name === 'NotAllowedError'
             ? 'Microphone blocked. Allow microphone in browser settings (address bar lock icon on laptop, or Settings → Safari on iPhone).'
@@ -203,7 +249,7 @@ export function useVoiceInput(language = 'en') {
         );
       }
     },
-    [serverTranscription, transcribeBlob]
+    [serverTranscription, transcribeBlob, stopSignalMonitor]
   );
 
   const finishBrowserSession = useCallback(

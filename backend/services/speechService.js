@@ -34,6 +34,20 @@ function getClient() {
   return openai;
 }
 
+const KNOWN_SILENCE_TRANSCRIPTS = new Set([
+  'வணக்கம் அனைவருக்கும் வாழ்த்துக்கள்',
+  'thank you for watching',
+]);
+
+function isKnownSilenceTranscript(text) {
+  const normalized = String(text || '')
+    .toLowerCase()
+    .replace(/[.,!?;:'"…]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return KNOWN_SILENCE_TRANSCRIPTS.has(normalized);
+}
+
 /** OpenAI TTS fallback when ElevenLabs is unavailable */
 async function synthesizeOpenAI(text, language = 'en') {
   const client = getClient();
@@ -67,17 +81,28 @@ async function transcribeAudio(buffer, language = 'en', mimeType = 'audio/webm')
     return { text: '', error: 'EMPTY_AUDIO' };
   }
 
-  const ext = mimeType.includes('mp4') ? 'mp4' : mimeType.includes('ogg') ? 'ogg' : 'webm';
+  const ext =
+    mimeType.includes('mpeg') || mimeType.includes('mp3')
+      ? 'mp3'
+      : mimeType.includes('mp4') || mimeType.includes('m4a')
+        ? 'mp4'
+        : mimeType.includes('ogg')
+          ? 'ogg'
+          : mimeType.includes('wav')
+            ? 'wav'
+            : 'webm';
+  const languageCode = { en: 'en', ta: 'ta', si: 'si' }[language];
 
   try {
     const file = await toFile(buffer, `answer.${ext}`, { type: mimeType || `audio/${ext}` });
     const result = await client.audio.transcriptions.create({
       file,
-      model: 'whisper-1',
-      prompt: 'Spoken interview answer. The speaker may use English, Tamil, or Sinhala.',
+      model: 'gpt-4o-mini-transcribe',
+      ...(languageCode ? { language: languageCode } : {}),
+      chunking_strategy: 'auto',
     });
     const text = String(result.text || '').trim();
-    if (!text) return { text: '', error: 'NO_SPEECH' };
+    if (!text || isKnownSilenceTranscript(text)) return { text: '', error: 'NO_SPEECH' };
     return { text, error: null };
   } catch (err) {
     return { text: '', error: err.message || 'WHISPER_FAILED' };
