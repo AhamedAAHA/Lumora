@@ -21,21 +21,10 @@ function blobExtension(blob) {
   return 'webm';
 }
 
-/** Desktop: browser SR first (reliable on laptop). Mobile + ta/si: Whisper recording first. */
-function pickVoiceStrategy(language, serverTranscription, browserSr) {
-  if (!serverTranscription) {
-    return browserSr ? 'browser' : 'none';
-  }
-  if (language === 'ta' || language === 'si') {
-    return 'whisper';
-  }
-  if (isMobileDevice()) {
-    return 'whisper';
-  }
-  if (browserSr) {
-    return 'browser';
-  }
-  return 'whisper';
+/** Prefer server transcription whenever configured for consistent desktop and mobile input. */
+function pickVoiceStrategy(serverTranscription, browserSr) {
+  if (serverTranscription) return 'whisper';
+  return browserSr ? 'browser' : 'none';
 }
 
 export function useVoiceInput(language = 'en') {
@@ -65,7 +54,7 @@ export function useVoiceInput(language = 'en') {
       const whisper = Boolean(data.openaiTranscription);
       serverTranscriptionRef.current = whisper;
       setServerTranscription(whisper);
-      setInputMode(pickVoiceStrategy(language, whisper, browserSr));
+      setInputMode(pickVoiceStrategy(whisper, browserSr));
       return { whisper, message: data.message };
     } catch {
       serverTranscriptionRef.current = false;
@@ -73,7 +62,7 @@ export function useVoiceInput(language = 'en') {
       setInputMode(browserSr ? 'browser' : 'none');
       return { whisper: false, message: null };
     }
-  }, [language, browserSr]);
+  }, [browserSr]);
 
   useEffect(() => {
     refreshCapabilities();
@@ -372,7 +361,7 @@ export function useVoiceInput(language = 'en') {
       const onFinal = onTranscript || callbacksRef.current.onFinal;
       const onLive = onInterim || callbacksRef.current.onInterim;
       const whisper = serverTranscriptionRef.current;
-      const strategy = pickVoiceStrategy(language, whisper, browserSr);
+      const strategy = pickVoiceStrategy(whisper, browserSr);
 
       if (strategy === 'whisper' && whisper) {
         startMediaRecorder(onFinal, onLive);
@@ -408,7 +397,6 @@ export function useVoiceInput(language = 'en') {
     },
     [
       refreshCapabilities,
-      language,
       browserSr,
       recording,
       stopBrowserRecognition,

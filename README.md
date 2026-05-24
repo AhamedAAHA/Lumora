@@ -62,8 +62,11 @@ cd backend
 npm run seed:admin
 ```
 
+<<<<<<< HEAD
 Set `ADMIN_EMAIL` and `ADMIN_PASSWORD` in `backend/.env` before running the seed command. Use a unique production password.
 
+=======
+>>>>>>> f894758bd757597925ba5af5ed0f5bc05a567ac1
 ### 4. Run (single command)
 
 From project root:

@@ -20,7 +20,8 @@ function createAudioElement(url) {
 }
 
 /**
- * Play interview question: ElevenLabs/OpenAI MP3 via API, then browser TTS fallback.
+ * Read questions immediately in the browser and use generated MP3 only if local TTS fails.
+ * This keeps free hosted API wake-ups out of the primary playback path.
  */
 export function useQuestionAudio({
   language = 'en',
@@ -53,6 +54,13 @@ export function useQuestionAudio({
 
       stop();
 
+      if (isMobileDevice() && !userGesture) {
+        return { ok: false, source: 'none', needsUserGesture: true };
+      }
+
+      const browserSpoke = await speakWithBrowser(text, language);
+      if (browserSpoke) return { ok: true, source: 'browser', needsUserGesture: false };
+
       try {
         const { data } = await http.post(endpoint, {
           text: text.trim(),
@@ -74,10 +82,6 @@ export function useQuestionAudio({
             return { ok: true, source: 'api', needsUserGesture: false };
           } catch (playErr) {
             if (playErr?.name === 'NotAllowedError' || playErr?.message === 'audio-playback') {
-              if (!isMobileDevice()) {
-                const spoke = await speakWithBrowser(text, language);
-                if (spoke) return { ok: true, source: 'browser', needsUserGesture: false };
-              }
               return { ok: false, source: 'api', needsUserGesture: true };
             }
           }
@@ -85,14 +89,6 @@ export function useQuestionAudio({
       } catch {
         // fall through to browser TTS
       }
-
-      const needsGestureForTts = isMobileDevice() && !userGesture;
-      if (needsGestureForTts) {
-        return { ok: false, source: 'none', needsUserGesture: true };
-      }
-
-      const spoke = await speakWithBrowser(text, language);
-      if (spoke) return { ok: true, source: 'browser', needsUserGesture: false };
 
       return { ok: false, source: 'none', needsUserGesture: !userGesture };
     },
