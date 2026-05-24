@@ -21,8 +21,9 @@ function blobExtension(blob) {
   return 'webm';
 }
 
-/** Prefer server transcription whenever configured for consistent desktop and mobile input. */
-function pickVoiceStrategy(serverTranscription, browserSr) {
+/** Desktop gets live transcription first; recording remains the fallback when it fails. */
+function pickVoiceStrategy(language, serverTranscription, browserSr) {
+  if (!isMobileDevice() && browserSr && language === 'en') return 'browser';
   if (serverTranscription) return 'whisper';
   return browserSr ? 'browser' : 'none';
 }
@@ -43,7 +44,6 @@ export function useVoiceInput(language = 'en') {
   const callbacksRef = useRef({ onFinal: null, onInterim: null });
   const endTimerRef = useRef(null);
   const startBrowserRecognitionRef = useRef(null);
-  const triedEnglishSrRef = useRef(false);
 
   const speechLang = speechLangCode(language);
   const browserSr = isSpeechRecognitionSupported();
@@ -54,7 +54,7 @@ export function useVoiceInput(language = 'en') {
       const whisper = Boolean(data.openaiTranscription);
       serverTranscriptionRef.current = whisper;
       setServerTranscription(whisper);
-      setInputMode(pickVoiceStrategy(whisper, browserSr));
+      setInputMode(pickVoiceStrategy(language, whisper, browserSr));
       return { whisper, message: data.message };
     } catch {
       serverTranscriptionRef.current = false;
@@ -62,7 +62,7 @@ export function useVoiceInput(language = 'en') {
       setInputMode(browserSr ? 'browser' : 'none');
       return { whisper: false, message: null };
     }
-  }, [browserSr]);
+  }, [language, browserSr]);
 
   useEffect(() => {
     refreshCapabilities();
@@ -163,7 +163,7 @@ export function useVoiceInput(language = 'en') {
 
       try {
         const stream = await navigator.mediaDevices.getUserMedia({
-          audio: { echoCancellation: true, noiseSuppression: true },
+          audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
         });
         streamRef.current = stream;
         chunksRef.current = [];
@@ -192,7 +192,7 @@ export function useVoiceInput(language = 'en') {
           else setVoiceError('Recording too short. Speak for 2–3 seconds, then click Stop listening.');
         };
 
-        recorder.start(150);
+        recorder.start();
         setRecording(true);
         setListening(true);
       } catch (err) {
@@ -220,13 +220,8 @@ export function useVoiceInput(language = 'en') {
           return;
         }
 
-        if (
-          serverTranscription &&
-          (language === 'ta' || language === 'si') &&
-          !triedEnglishSrRef.current
-        ) {
-          triedEnglishSrRef.current = true;
-          setVoiceError('Switching to microphone recording for Tamil/Sinhala…');
+        if (serverTranscription) {
+          setVoiceError('Live speech did not hear you. Recording instead - speak again, then click Stop recording.');
           startMediaRecorder(onTranscript, callbacksRef.current.onInterim);
           return;
         }
@@ -238,7 +233,7 @@ export function useVoiceInput(language = 'en') {
         );
       }, 450);
     },
-    [serverTranscription, language, startMediaRecorder]
+    [serverTranscription, startMediaRecorder]
   );
 
   const startBrowserRecognition = useCallback(
@@ -340,7 +335,6 @@ export function useVoiceInput(language = 'en') {
   const toggleListening = useCallback(
     async (onTranscript, onInterim) => {
       callbacksRef.current = { onFinal: onTranscript, onInterim };
-      triedEnglishSrRef.current = false;
 
       if (recognitionRef.current || recording) {
         stopBrowserRecognition();
@@ -361,7 +355,7 @@ export function useVoiceInput(language = 'en') {
       const onFinal = onTranscript || callbacksRef.current.onFinal;
       const onLive = onInterim || callbacksRef.current.onInterim;
       const whisper = serverTranscriptionRef.current;
-      const strategy = pickVoiceStrategy(whisper, browserSr);
+      const strategy = pickVoiceStrategy(language, whisper, browserSr);
 
       if (strategy === 'whisper' && whisper) {
         startMediaRecorder(onFinal, onLive);
@@ -397,6 +391,7 @@ export function useVoiceInput(language = 'en') {
     },
     [
       refreshCapabilities,
+      language,
       browserSr,
       recording,
       stopBrowserRecognition,

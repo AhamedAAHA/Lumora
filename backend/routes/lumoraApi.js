@@ -1391,7 +1391,8 @@ router.post('/voice/transcribe', protectCandidate, (req, res, next) => {
       const messages = {
         OPENAI_NOT_CONFIGURED:
           'Add OPENAI_API_KEY to backend/.env and restart the server, or use Chrome/Edge voice input.',
-        NO_SPEECH: 'No speech detected. Speak clearly and try again, or type your answer.',
+        NO_SPEECH:
+          'No speech detected. Check your laptop microphone input, speak for a few seconds, then click Stop recording.',
         EMPTY_AUDIO: 'Recording was empty. Try again.',
       };
       return res.status(503).json({

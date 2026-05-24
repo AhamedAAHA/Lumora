@@ -34,8 +34,6 @@ function getClient() {
   return openai;
 }
 
-const LANG_HINT = { en: 'English', ta: 'Tamil', si: 'Sinhala' };
-
 /** OpenAI TTS fallback when ElevenLabs is unavailable */
 async function synthesizeOpenAI(text, language = 'en') {
   const client = getClient();
@@ -69,7 +67,6 @@ async function transcribeAudio(buffer, language = 'en', mimeType = 'audio/webm')
     return { text: '', error: 'EMPTY_AUDIO' };
   }
 
-  const lang = ['en', 'ta', 'si'].includes(language) ? language : undefined;
   const ext = mimeType.includes('mp4') ? 'mp4' : mimeType.includes('ogg') ? 'ogg' : 'webm';
 
   try {
@@ -77,8 +74,7 @@ async function transcribeAudio(buffer, language = 'en', mimeType = 'audio/webm')
     const result = await client.audio.transcriptions.create({
       file,
       model: 'whisper-1',
-      language: lang,
-      prompt: lang ? `Spoken interview answer in ${LANG_HINT[lang]}.` : 'Spoken interview answer.',
+      prompt: 'Spoken interview answer. The speaker may use English, Tamil, or Sinhala.',
     });
     const text = String(result.text || '').trim();
     if (!text) return { text: '', error: 'NO_SPEECH' };
